@@ -70,7 +70,7 @@ impl super::KomodoResource for Repo {
       tags: repo.tags,
       resource_type: ResourceTargetVariant::Repo,
       info: RepoListItemInfo {
-        server_id: repo.config.server_id,
+        server_ids: repo.config.server_ids,
         builder_id: repo.config.builder_id,
         last_pulled_at: repo.info.last_pulled_at,
         last_built_at: repo.info.last_built_at,
@@ -164,31 +164,59 @@ impl super::KomodoResource for Repo {
     repo: &Resource<Self::Config, Self::Info>,
     update: &mut Update,
   ) -> anyhow::Result<()> {
-    if repo.config.server_id.is_empty() {
+    if repo.config.server_ids.is_empty() {
       return Ok(());
     }
 
-    let server = super::get::<Server>(&repo.config.server_id).await?;
-    let periphery = periphery_client(&server).await?;
+    // Delete repo files on all servers
+    for server_id in &repo.config.server_ids {
+      let server = match super::get::<Server>(server_id).await {
+        Ok(s) => s,
+        Err(e) => {
+          update.push_error_log(
+            "Get Server",
+            format!("Failed to get server {}: {}", server_id, format_serror(&e.into())),
+          );
+          continue;
+        }
+      };
 
-    match periphery
-      .request(DeleteRepo {
-        name: if repo.config.path.is_empty() {
-          to_path_compatible_name(&repo.name)
-        } else {
-          repo.config.path.clone()
-        },
-        is_build: false,
-      })
-      .await
-    {
-      Ok(log) => update.logs.push(log),
-      Err(e) => update.push_error_log(
-        "Delete Repo on Periphery",
-        format_serror(
-          &e.context("Failed to delete repo files").into(),
+      let periphery = match periphery_client(&server).await {
+        Ok(p) => p,
+        Err(e) => {
+          update.push_error_log(
+            "Connect to Server",
+            format!("Failed to connect to server {}: {}", server.name, format_serror(&e.into())),
+          );
+          continue;
+        }
+      };
+
+      match periphery
+        .request(DeleteRepo {
+          name: if repo.config.path.is_empty() {
+            to_path_compatible_name(&repo.name)
+          } else {
+            repo.config.path.clone()
+          },
+          is_build: false,
+        })
+        .await
+      {
+        Ok(log) => {
+          update.push_simple_log(
+            "Delete Repo on Server",
+            format!("Deleted repo files on server: {}", server.name),
+          );
+          update.logs.push(log);
+        }
+        Err(e) => update.push_error_log(
+          "Delete Repo on Periphery",
+          format!("Failed to delete repo files on server {}: {}", server.name, format_serror(
+            &e.context("Failed to delete repo files").into(),
+          )),
         ),
-      ),
+      }
     }
 
     Ok(())
@@ -236,7 +264,27 @@ async fn validate_config(
   config: &mut PartialRepoConfig,
   user: &User,
 ) -> anyhow::Result<()> {
-  if let Some(server_id) = &config.server_id
+  // Handle new server_ids array
+  if let Some(server_ids) = &config.server_ids
+    && !server_ids.is_empty()
+  {
+    let mut validated_ids = Vec::new();
+    for server_id in server_ids {
+      if !server_id.is_empty() {
+        let server = get_check_permissions::<Server>(
+          server_id,
+          user,
+          PermissionLevel::Read.attach(),
+        )
+        .await
+        .context(format!("Cannot attach Repo to Server: {}", server_id))?;
+        validated_ids.push(server.id);
+      }
+    }
+    config.server_ids = Some(validated_ids);
+  }
+  // Handle deprecated server_id for backward compatibility
+  else if let Some(server_id) = &config.server_id
     && !server_id.is_empty()
   {
     let server = get_check_permissions::<Server>(
@@ -246,7 +294,9 @@ async fn validate_config(
     )
     .await
     .context("Cannot attach Repo to this Server")?;
-    config.server_id = Some(server.id);
+    // Migrate to server_ids
+    config.server_ids = Some(vec![server.id]);
+    config.server_id = None;
   }
   if let Some(builder_id) = &config.builder_id
     && !builder_id.is_empty()

@@ -407,6 +407,125 @@ export const ResourceSelector = ({
   );
 };
 
+export const MultiResourceSelector = ({
+  type,
+  selected,
+  onSelect,
+  disabled,
+  templates = Types.TemplatesQueryBehavior.Exclude,
+  showSelectionInButton = true,
+}: {
+  type: UsableResource;
+  selected: string[];
+  onSelect?: (ids: string[]) => void;
+  disabled?: boolean;
+  templates?: Types.TemplatesQueryBehavior;
+  showSelectionInButton?: boolean;
+}) => {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+
+  const templateFilterFn =
+    templates === Types.TemplatesQueryBehavior.Exclude
+      ? (r: Types.ResourceListItem<unknown>) => !r.template
+      : templates === Types.TemplatesQueryBehavior.Only
+        ? (r: Types.ResourceListItem<unknown>) => r.template
+        : () => true;
+  const resources = useRead(`List${type}s`, {}).data?.filter(templateFilterFn);
+
+  if (!resources) return null;
+
+  const filtered = filterBySplit(
+    resources as Types.ResourceListItem<unknown>[],
+    search,
+    (item) => item.name
+  ).sort((a, b) => {
+    if (a.name > b.name) {
+      return 1;
+    } else if (a.name < b.name) {
+      return -1;
+    } else {
+      return 0;
+    }
+  });
+
+  const selectedResources = resources.filter((r) =>
+    selected.includes(r.id)
+  );
+
+  const toggleResource = (id: string) => {
+    if (selected.includes(id)) {
+      onSelect && onSelect(selected.filter((s) => s !== id));
+    } else {
+      onSelect && onSelect([...selected, id]);
+    }
+  };
+
+  // Generate button label based on selection
+  const getButtonLabel = () => {
+    if (!showSelectionInButton) {
+      return `Select ${type}s`;
+    }
+    
+    if (selectedResources.length === 0) {
+      return `Select ${type}s`;
+    } else if (selectedResources.length === 1) {
+      return selectedResources[0].name;
+    } else if (selectedResources.length <= 2) {
+      return selectedResources.map(r => r.name).join(", ");
+    } else {
+      return `${selectedResources.length} ${type}s Selected`;
+    }
+  };
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          variant="secondary"
+          className="flex justify-start gap-2 w-fit max-w-[350px]"
+          disabled={disabled}
+        >
+          {getButtonLabel()}
+          {!disabled && <ChevronsUpDown className="w-3 h-3" />}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[300px] max-h-[400px] p-0" align="start">
+        <Command shouldFilter={false}>
+          <CommandInput
+            placeholder={`Search ${type}s`}
+            className="h-9"
+            value={search}
+            onValueChange={setSearch}
+          />
+          <CommandList>
+            <CommandEmpty className="flex justify-evenly items-center pt-3 pb-2">
+              {`No ${type}s Found`}
+              <SearchX className="w-3 h-3" />
+            </CommandEmpty>
+
+            <CommandGroup>
+              {filtered.map((resource) => {
+                const isSelected = selected.includes(resource.id);
+                return (
+                  <CommandItem
+                    key={resource.id}
+                    onSelect={() => toggleResource(resource.id)}
+                    className="flex items-center justify-between cursor-pointer"
+                  >
+                    <div className="p-1">{resource.name}</div>
+                    {isSelected && <Check className="w-4 h-4" />}
+                  </CommandItem>
+                );
+              })}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+};
+
 export const ResourceLink = ({
   type,
   id,
@@ -541,6 +660,7 @@ export const NewResource = ({
   const { mutateAsync: create } = useWrite(`Create${type}`);
   const { mutateAsync: copy } = useWrite(`Copy${type}`);
   const [serverId, setServerId] = useState("");
+  const [serverIds, setServerIds] = useState<string[]>(server_id ? [server_id] : []);
   const [builderId, setBuilderId] = useState("");
   const [templateId, setTemplateId] = useState("");
   const [name, setName] = useState(_name);
@@ -558,7 +678,7 @@ export const NewResource = ({
         ? { server_id: server_id ?? serverId }
         : type === "Repo"
           ? {
-              server_id: server_id ?? serverId,
+              server_ids: server_id ? [server_id] : serverIds,
               builder_id: builder_id ?? builderId,
             }
           : type === "Build"
@@ -600,14 +720,22 @@ export const NewResource = ({
         />
         {selectServer && (
           <>
-            Server
-            <ResourceSelector
-              type="Server"
-              selected={serverId}
-              onSelect={setServerId}
-              targetClassName="w-full justify-between"
-              align="end"
-            />
+            {type === "Repo" ? "Servers" : "Server"}
+            {type === "Repo" ? (
+              <MultiResourceSelector
+                type="Server"
+                selected={serverIds}
+                onSelect={setServerIds}
+              />
+            ) : (
+              <ResourceSelector
+                type="Server"
+                selected={serverId}
+                onSelect={setServerId}
+                targetClassName="w-full justify-between"
+                align="end"
+              />
+            )}
           </>
         )}
         {selectBuilder && (

@@ -363,13 +363,11 @@ impl ToToml for Build {
 impl ToToml for Repo {
   fn replace_ids(resource: &mut Resource<Self::Config, Self::Info>) {
     let all = all_resources_cache().load();
-    resource.config.server_id.clone_from(
-      all
-        .servers
-        .get(&resource.config.server_id)
-        .map(|s| &s.name)
-        .unwrap_or(&String::new()),
-    );
+    // Replace server IDs with server names
+    resource.config.server_ids = resource.config.server_ids
+      .iter()
+      .filter_map(|id| all.servers.get(id).map(|s| s.name.clone()))
+      .collect();
     resource.config.builder_id.clone_from(
       all
         .builders
@@ -387,7 +385,10 @@ impl ToToml for Repo {
       .into_iter()
       .map(|(key, value)| {
         match key.as_str() {
-          "server_id" => return Ok((String::from("server"), value)),
+          "server_ids" => {
+            // Always write as "servers" in TOML, regardless of single or multiple
+            return Ok((String::from("servers"), value));
+          }
           "builder_id" => {
             return Ok((String::from("builder"), value));
           }

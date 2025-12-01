@@ -583,7 +583,6 @@ impl ListResources for RepoListItem {
     repos.sort_by(|a, b| {
       a.name
         .cmp(&b.name)
-        .then(a.info.server_id.cmp(&b.info.server_id))
         .then(a.info.builder_id.cmp(&b.info.builder_id))
     });
     Ok(repos)

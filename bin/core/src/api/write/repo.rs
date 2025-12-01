@@ -131,7 +131,7 @@ impl Resolve<WriteArgs> for RenameRepo {
     )
     .await?;
 
-    if repo.config.server_id.is_empty()
+    if repo.config.server_ids.is_empty()
       || !repo.config.path.is_empty()
     {
       return Ok(
@@ -163,26 +163,37 @@ impl Resolve<WriteArgs> for RenameRepo {
     .await
     .context("Failed to update Repo name on db")?;
 
-    let server =
-      resource::get::<Server>(&repo.config.server_id).await?;
+    // Rename on all servers
+    for server_id in &repo.config.server_ids {
+      let server = match resource::get::<Server>(server_id).await {
+        Ok(s) => s,
+        Err(e) => {
+          update.push_error_log(
+            "Get Server",
+            format!("Failed to get server {}: {}", server_id, format_serror(&e.into())),
+          );
+          continue;
+        }
+      };
 
-    let log = match periphery_client(&server)
-      .await?
-      .request(api::git::RenameRepo {
-        curr_name: to_path_compatible_name(&repo.name),
-        new_name: name.clone(),
-      })
-      .await
-      .context("Failed to rename Repo directory on Server")
-    {
-      Ok(log) => log,
-      Err(e) => Log::error(
-        "Rename Repo directory failure",
-        format_serror(&e.into()),
-      ),
-    };
+      let log = match periphery_client(&server)
+        .await?
+        .request(api::git::RenameRepo {
+          curr_name: to_path_compatible_name(&repo.name),
+          new_name: name.clone(),
+        })
+        .await
+        .context("Failed to rename Repo directory on Server")
+      {
+        Ok(log) => log,
+        Err(e) => Log::error(
+          "Rename Repo directory failure",
+          format!("Failed on server {}: {}", server.name, format_serror(&e.into())),
+        ),
+      };
 
-    update.logs.push(log);
+      update.logs.push(log);
+    }
 
     update.push_simple_log(
       "Rename Repo",

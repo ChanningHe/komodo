@@ -34,7 +34,7 @@ const StandardTable = ({ servers }: { servers: Types.ServerListItem[] }) => {
       return (
         (deployments?.filter((d) => d.info.server_id === id).length || 0) +
         (stacks?.filter((d) => d.info.server_id === id).length || 0) +
-        (repos?.filter((d) => d.info.server_id === id).length || 0)
+        (repos?.filter((d) => d.info.server_ids.includes(id)).length || 0)
       );
     },
     [deployments, stacks, repos]

@@ -19,7 +19,7 @@ export const CloneRepo = ({ id }: { id: string }) => {
     { refetchInterval: 5000 }
   ).data?.cloning;
   const info = useRepo(id)?.info;
-  if (!info?.server_id) return null;
+  if (!info?.server_ids || info.server_ids.length === 0) return null;
   const hash = info?.latest_hash;
   const isCloned = (hash?.length || 0) > 0;
   const pending = isPending || cloning;
@@ -48,7 +48,7 @@ export const PullRepo = ({ id }: { id: string }) => {
     { refetchInterval: 5000 }
   ).data?.pulling;
   const info = useRepo(id)?.info;
-  if (!info?.server_id) return null;
+  if (!info?.server_ids || info.server_ids.length === 0) return null;
   const hash = info?.latest_hash;
   const isCloned = (hash?.length || 0) > 0;
   if (!isCloned) return null;

@@ -26,8 +26,8 @@ pub type RepoListItem = ResourceListItem<RepoListItemInfo>;
 #[typeshare]
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct RepoListItemInfo {
-  /// The server that repo sits on.
-  pub server_id: String,
+  /// The servers that repo sits on.
+  pub server_ids: Vec<String>,
   /// The builder that builds the repo.
   pub builder_id: String,
   /// Repo last cloned / pulled timestamp in ms.
@@ -104,9 +104,17 @@ pub type _PartialRepoConfig = PartialRepoConfig;
 #[partial_derive(Serialize, Deserialize, Debug, Clone, Default)]
 #[partial(skip_serializing_none, from, diff)]
 pub struct RepoConfig {
-  /// The server to clone the repo on.
-  #[serde(default, alias = "server")]
-  #[partial_attr(serde(alias = "server"))]
+  /// The servers to clone the repo on. Supports multiple servers.
+  #[serde(default, alias = "servers")]
+  #[partial_attr(serde(alias = "servers"))]
+  #[builder(default)]
+  pub server_ids: Vec<String>,
+
+  /// DEPRECATED: Use server_ids instead. Kept for TOML backward compatibility.
+  /// This field is only used during deserialization and will be migrated to server_ids.
+  #[deprecated(note = "Use server_ids instead. This field is kept for backward compatibility only.")]
+  #[serde(default, alias = "server", skip_serializing)]
+  #[partial_attr(serde(default, alias = "server", skip_serializing))]
   #[builder(default)]
   pub server_id: String,
 
@@ -233,6 +241,17 @@ impl RepoConfig {
     environment_vars_from_str(&self.environment)
       .context("Invalid environment")
   }
+
+  /// Migrate from deprecated server_id to server_ids.
+  /// This method should be called after deserialization to ensure backward compatibility.
+  #[allow(deprecated)]
+  pub fn migrate_server_id(&mut self) {
+    // If server_ids is empty but server_id is not, migrate it
+    if self.server_ids.is_empty() && !self.server_id.is_empty() {
+      self.server_ids = vec![self.server_id.clone()];
+      self.server_id.clear();
+    }
+  }
 }
 
 fn default_git_provider() -> String {
@@ -258,6 +277,8 @@ fn default_webhook_enabled() -> bool {
 impl Default for RepoConfig {
   fn default() -> Self {
     Self {
+      server_ids: Default::default(),
+      #[allow(deprecated)]
       server_id: Default::default(),
       builder_id: Default::default(),
       git_provider: default_git_provider(),

@@ -17,7 +17,7 @@ import {
   useWrite,
 } from "@lib/hooks";
 import { Types } from "komodo_client";
-import { CopyWebhook, ResourceLink, ResourceSelector } from "../common";
+import { CopyWebhook, ResourceLink, ResourceSelector, MultiResourceSelector } from "../common";
 import { PlusCircle } from "lucide-react";
 import { Button } from "@ui/button";
 import { SecretsSearch } from "@components/config/env_vars";
@@ -57,30 +57,40 @@ export const RepoConfig = ({ id }: { id: string }) => {
       components={{
         "": [
           {
-            label: "Server",
+            label: "Servers",
             labelHidden: true,
             components: {
-              server_id: (server_id, set) => {
+              server_ids: (server_ids, set) => {
+                const servers = useRead("ListServers", {}).data;
+                const selectedServers = servers?.filter(s => 
+                  (server_ids || []).includes(s.id)
+                ) || [];
+
                 return (
                   <ConfigItem
                     label={
-                      server_id ? (
-                        <div className="flex gap-3 text-lg">
-                          Server:
-                          <ResourceLink type="Server" id={server_id} />
+                      selectedServers.length > 0 ? (
+                        <div className="flex items-center gap-3 flex-wrap text-lg">
+                          <span>Servers:</span>
+                          {selectedServers.flatMap((server, index) => [
+                            <ResourceLink key={server.id} type="Server" id={server.id} />,
+                            index < selectedServers.length - 1 && (
+                              <span key={`sep-${server.id}`} className="text-muted-foreground">•</span>
+                            )
+                          ].filter(Boolean))}
                         </div>
                       ) : (
-                        "Select Server"
+                        "Servers"
                       )
                     }
-                    description="Select the Server to clone on."
+                    description="Select the servers to clone the repo on. You can select multiple servers."
                   >
-                    <ResourceSelector
+                    <MultiResourceSelector
                       type="Server"
-                      selected={server_id}
-                      onSelect={(server_id) => set({ server_id })}
+                      selected={server_ids || []}
+                      onSelect={(server_ids) => set({ server_ids })}
                       disabled={disabled}
-                      align="start"
+                      showSelectionInButton={false}
                     />
                   </ConfigItem>
                 );
@@ -191,19 +201,23 @@ export const RepoConfig = ({ id }: { id: string }) => {
             description:
               "Write these variables to a .env-formatted file at the specified path, before on_clone / on_pull are run.",
             components: {
-              environment: (env, set) => (
-                <div className="flex flex-col gap-4">
-                  <SecretsSearch
-                    server={update.server_id ?? config.server_id}
-                  />
-                  <MonacoEditor
-                    value={env || "  # VARIABLE = value\n"}
-                    onValueChange={(environment) => set({ environment })}
-                    language="key_value"
-                    readOnly={disabled}
-                  />
-                </div>
-              ),
+              environment: (env, set) => {
+                const server_ids = update.server_ids ?? config.server_ids ?? [];
+                const first_server = server_ids.length > 0 ? server_ids[0] : undefined;
+                return (
+                  <div className="flex flex-col gap-4">
+                    <SecretsSearch
+                      server={first_server}
+                    />
+                    <MonacoEditor
+                      value={env || "  # VARIABLE = value\n"}
+                      onValueChange={(environment) => set({ environment })}
+                      language="key_value"
+                      readOnly={disabled}
+                    />
+                  </div>
+                );
+              },
               env_file_path: {
                 description:
                   "The path to write the file to, relative to the root of the repo.",

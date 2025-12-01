@@ -155,12 +155,12 @@ impl ResourceSyncTrait for Repo {
     update: Self::PartialConfig,
   ) -> anyhow::Result<Self::ConfigDiff> {
     let resources = all_resources_cache().load();
-    // Need to replace server id with name
-    original.server_id = resources
-      .servers
-      .get(&original.server_id)
-      .map(|s| s.name.clone())
-      .unwrap_or_default();
+    // Need to replace server ids with names
+    original.server_ids = original
+      .server_ids
+      .iter()
+      .filter_map(|id| resources.servers.get(id).map(|s| s.name.clone()))
+      .collect();
 
     // Need to replace builder id with name
     original.builder_id = resources

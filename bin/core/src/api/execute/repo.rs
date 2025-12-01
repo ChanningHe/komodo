@@ -93,6 +93,9 @@ impl Resolve<ExecuteArgs> for CloneRepo {
     )
     .await?;
 
+    // Migrate deprecated server_id to server_ids if needed
+    repo.config.migrate_server_id();
+
     // get the action state for the repo (or insert default).
     let action_state =
       action_states().repo.get_or_insert_default(&repo.id).await;
@@ -105,8 +108,9 @@ impl Resolve<ExecuteArgs> for CloneRepo {
     let mut update = update.clone();
     update_update(update.clone()).await?;
 
-    if repo.config.server_id.is_empty() {
-      return Err(anyhow!("repo has no server attached").into());
+    // Check that we have at least one server
+    if repo.config.server_ids.is_empty() {
+      return Err(anyhow!("repo has no servers attached").into());
     }
 
     let git_token = git_token(
@@ -119,40 +123,115 @@ impl Resolve<ExecuteArgs> for CloneRepo {
       || format!("Failed to get git token in call to db. This is a database error, not a token exisitence error. Stopping run. | {} | {}", repo.config.git_provider, repo.config.git_account),
     )?;
 
-    let server =
-      resource::get::<Server>(&repo.config.server_id).await?;
-
-    let periphery = periphery_client(&server).await?;
-
     // interpolate variables / secrets, returning the sanitizing replacers to send to
     // periphery so it may sanitize the final command for safe logging (avoids exposing secret values)
     let secret_replacers =
       interpolate(&mut repo, &mut update).await?;
 
-    let logs = match periphery
-      .request(api::git::CloneRepo {
-        args: (&repo).into(),
-        git_token,
-        environment: repo.config.env_vars()?,
-        env_file_path: repo.config.env_file_path,
-        on_clone: repo.config.on_clone.into(),
-        on_pull: repo.config.on_pull.into(),
-        skip_secret_interp: repo.config.skip_secret_interp,
-        replacers: secret_replacers.into_iter().collect(),
-      })
-      .await
-    {
-      Ok(res) => res.res.logs,
-      Err(e) => {
-        vec![Log::error(
-          "Clone Repo",
-          format_serror(&e.context("Failed to clone repo").into()),
-        )]
-      }
+    // Clone on all servers serially
+    let mut all_success = true;
+    let total_servers = repo.config.server_ids.len();
+    
+    let title = if total_servers > 1 {
+      format!("Clone Repo ({} servers)", total_servers)
+    } else {
+      "Clone Repo".to_string()
     };
+    
+    update.push_simple_log(
+      &title,
+      format!("Cloning repo on {} server(s)", total_servers),
+    );
 
-    update.logs.extend(logs);
-    update.finalize();
+    for (index, server_id) in repo.config.server_ids.iter().enumerate() {
+      let server_num = index + 1;
+
+      let server = match resource::get::<Server>(server_id).await {
+        Ok(s) => s,
+        Err(e) => {
+          all_success = false;
+          update.push_error_log(
+            "Get Server",
+            format!("Failed to get server {}: {}", server_id, format_serror(&e.into())),
+          );
+          continue;
+        }
+      };
+
+      update.push_simple_log(
+        "Clone",
+        format!("Cloning on server {}/{}: {}", server_num, total_servers, server.name),
+      );
+
+      let periphery = match periphery_client(&server).await {
+        Ok(p) => p,
+        Err(e) => {
+          all_success = false;
+          update.push_error_log(
+            "Connect to Server",
+            format!("Failed to connect to server {}: {}", server.name, format_serror(&e.into())),
+          );
+          continue;
+        }
+      };
+
+      let logs = match periphery
+        .request(api::git::CloneRepo {
+          args: (&repo).into(),
+          git_token: git_token.clone(),
+          environment: repo.config.env_vars()?,
+          env_file_path: repo.config.env_file_path.clone(),
+          on_clone: repo.config.on_clone.clone().into(),
+          on_pull: repo.config.on_pull.clone().into(),
+          skip_secret_interp: repo.config.skip_secret_interp,
+          replacers: secret_replacers.clone().into_iter().collect(),
+        })
+        .await
+      {
+        Ok(res) => {
+          update.push_simple_log(
+            "Success",
+            format!("Cloned successfully on server: {}", server.name),
+          );
+          res.res.logs
+        }
+        Err(e) => {
+          all_success = false;
+          vec![Log::error(
+            "Clone Repo",
+            format!("Failed to clone on server {}: {}", server.name, format_serror(&e.context("Failed to clone repo").into())),
+          )]
+        }
+      };
+
+      update.logs.extend(logs);
+    }
+
+    // Finalize based on whether all servers succeeded
+    if all_success {
+      let complete_title = if total_servers > 1 {
+        format!("Clone Complete ({} servers)", total_servers)
+      } else {
+        "Clone Complete".to_string()
+      };
+      update.push_simple_log(
+        &complete_title,
+        format!("Successfully cloned on all {} server(s)", total_servers),
+      );
+      update.finalize();
+    } else {
+      update.success = false;
+      let fail_title = if total_servers > 1 {
+        format!("Clone Failed ({} servers)", total_servers)
+      } else {
+        "Clone Failed".to_string()
+      };
+      update.push_error_log(
+        &fail_title,
+        "Failed to clone on one or more servers. See logs above for details.".to_string(),
+      );
+      update.finalize();
+    }
 
     if update.success {
       update_last_pulled_time(&repo.name).await;
@@ -224,6 +303,9 @@ impl Resolve<ExecuteArgs> for PullRepo {
     )
     .await?;
 
+    // Migrate deprecated server_id to server_ids if needed
+    repo.config.migrate_server_id();
+
     // get the action state for the repo (or insert default).
     let action_state =
       action_states().repo.get_or_insert_default(&repo.id).await;
@@ -237,8 +319,9 @@ impl Resolve<ExecuteArgs> for PullRepo {
 
     update_update(update.clone()).await?;
 
-    if repo.config.server_id.is_empty() {
-      return Err(anyhow!("repo has no server attached").into());
+    // Check that we have at least one server
+    if repo.config.server_ids.is_empty() {
+      return Err(anyhow!("repo has no servers attached").into());
     }
 
     let git_token = git_token(
@@ -251,43 +334,115 @@ impl Resolve<ExecuteArgs> for PullRepo {
       || format!("Failed to get git token in call to db. This is a database error, not a token exisitence error. Stopping run. | {} | {}", repo.config.git_provider, repo.config.git_account),
     )?;
 
-    let server =
-      resource::get::<Server>(&repo.config.server_id).await?;
-
-    let periphery = periphery_client(&server).await?;
-
     // interpolate variables / secrets, returning the sanitizing replacers to send to
     // periphery so it may sanitize the final command for safe logging (avoids exposing secret values)
     let secret_replacers =
       interpolate(&mut repo, &mut update).await?;
 
-    let logs = match periphery
-      .request(api::git::PullRepo {
-        args: (&repo).into(),
-        git_token,
-        environment: repo.config.env_vars()?,
-        env_file_path: repo.config.env_file_path,
-        on_pull: repo.config.on_pull.into(),
-        skip_secret_interp: repo.config.skip_secret_interp,
-        replacers: secret_replacers.into_iter().collect(),
-      })
-      .await
-    {
-      Ok(res) => {
-        update.commit_hash = res.res.commit_hash.unwrap_or_default();
-        res.res.logs
-      }
-      Err(e) => {
-        vec![Log::error(
-          "pull repo",
-          format_serror(&e.context("failed to pull repo").into()),
-        )]
-      }
+    // Pull on all servers serially
+    let mut all_success = true;
+    let total_servers = repo.config.server_ids.len();
+    
+    let title = if total_servers > 1 {
+      format!("Pull Repo ({} servers)", total_servers)
+    } else {
+      "Pull Repo".to_string()
     };
+    
+    update.push_simple_log(
+      &title,
+      format!("Pulling repo on {} server(s)", total_servers),
+    );
 
-    update.logs.extend(logs);
+    for (index, server_id) in repo.config.server_ids.iter().enumerate() {
+      let server_num = index + 1;
 
-    update.finalize();
+      let server = match resource::get::<Server>(server_id).await {
+        Ok(s) => s,
+        Err(e) => {
+          all_success = false;
+          update.push_error_log(
+            "Get Server",
+            format!("Failed to get server {}: {}", server_id, format_serror(&e.into())),
+          );
+          continue;
+        }
+      };
+
+      update.push_simple_log(
+        "Pull",
+        format!("Pulling on server {}/{}: {}", server_num, total_servers, server.name),
+      );
+
+      let periphery = match periphery_client(&server).await {
+        Ok(p) => p,
+        Err(e) => {
+          all_success = false;
+          update.push_error_log(
+            "Connect to Server",
+            format!("Failed to connect to server {}: {}", server.name, format_serror(&e.into())),
+          );
+          continue;
+        }
+      };
+
+      let logs = match periphery
+        .request(api::git::PullRepo {
+          args: (&repo).into(),
+          git_token: git_token.clone(),
+          environment: repo.config.env_vars()?,
+          env_file_path: repo.config.env_file_path.clone(),
+          on_pull: repo.config.on_pull.clone().into(),
+          skip_secret_interp: repo.config.skip_secret_interp,
+          replacers: secret_replacers.clone().into_iter().collect(),
+        })
+        .await
+      {
+        Ok(res) => {
+          update.commit_hash = res.res.commit_hash.unwrap_or_default();
+          update.push_simple_log(
+            "Success",
+            format!("Pulled successfully on server: {}", server.name),
+          );
+          res.res.logs
+        }
+        Err(e) => {
+          all_success = false;
+          vec![Log::error(
+            "Pull Repo",
+            format!("Failed to pull on server {}: {}", server.name, format_serror(&e.context("failed to pull repo").into())),
+          )]
+        }
+      };
+
+      update.logs.extend(logs);
+    }
+
+    // Finalize based on whether all servers succeeded
+    if all_success {
+      let complete_title = if total_servers > 1 {
+        format!("Pull Complete ({} servers)", total_servers)
+      } else {
+        "Pull Complete".to_string()
+      };
+      update.push_simple_log(
+        &complete_title,
+        format!("Successfully pulled on all {} server(s)", total_servers),
+      );
+      update.finalize();
+    } else {
+      update.success = false;
+      let fail_title = if total_servers > 1 {
+        format!("Pull Failed ({} servers)", total_servers)
+      } else {
+        "Pull Failed".to_string()
+      };
+      update.push_error_log(
+        &fail_title,
+        "Failed to pull on one or more servers. See logs above for details.".to_string(),
+      );
+      update.finalize();
+    }
 
     if update.success {
       update_last_pulled_time(&repo.name).await;

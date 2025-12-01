@@ -223,8 +223,8 @@ impl super::KomodoResource for Server {
 
     db.repos
       .update_many(
-        doc! { "config.server_id": &id },
-        doc! { "$set": { "config.server_id": "" } },
+        doc! { "config.server_ids": &id },
+        doc! { "$pull": { "config.server_ids": &id } },
       )
       .await
       .context("failed to detach server from repos")?;

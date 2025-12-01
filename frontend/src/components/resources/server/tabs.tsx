@@ -37,7 +37,7 @@ export const ServerTabs = ({ id }: { id: string }) => {
   const noDeployments = deployments.length === 0;
   const repos =
     useRead("ListRepos", {}).data?.filter(
-      (repo) => repo.info.server_id === id
+      (repo) => repo.info.server_ids.includes(id)
     ) ?? [];
   const noRepos = repos.length === 0;
   const stacks =
@@ -111,7 +111,7 @@ const ServerTabsResources = ({
     ) ?? [];
   const repos =
     useRead("ListRepos", {}).data?.filter(
-      (repo) => repo.info.server_id === id
+      (repo) => repo.info.server_ids.includes(id)
     ) ?? [];
   const stacks =
     useRead("ListStacks", {}).data?.filter(

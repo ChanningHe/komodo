@@ -224,9 +224,6 @@ export type ResourceTarget = {
     type: "System";
     id: string;
 } | {
-    type: "Swarm";
-    id: string;
-} | {
     type: "Server";
     id: string;
 } | {
@@ -354,10 +351,6 @@ export type BatchExecutionResponseItem = {
 export type BatchExecutionResponse = BatchExecutionResponseItem[];
 export declare enum Operation {
     None = "None",
-    CreateSwarm = "CreateSwarm",
-    UpdateSwarm = "UpdateSwarm",
-    RenameSwarm = "RenameSwarm",
-    DeleteSwarm = "DeleteSwarm",
     CreateServer = "CreateServer",
     UpdateServer = "UpdateServer",
     UpdateServerKey = "UpdateServerKey",
@@ -445,13 +438,6 @@ export declare enum Operation {
     RenameAction = "RenameAction",
     DeleteAction = "DeleteAction",
     RunAction = "RunAction",
-    CreateResourceSync = "CreateResourceSync",
-    UpdateResourceSync = "UpdateResourceSync",
-    RenameResourceSync = "RenameResourceSync",
-    DeleteResourceSync = "DeleteResourceSync",
-    WriteSyncContents = "WriteSyncContents",
-    CommitSync = "CommitSync",
-    RunSync = "RunSync",
     CreateBuilder = "CreateBuilder",
     UpdateBuilder = "UpdateBuilder",
     RenameBuilder = "RenameBuilder",
@@ -462,6 +448,13 @@ export declare enum Operation {
     DeleteAlerter = "DeleteAlerter",
     TestAlerter = "TestAlerter",
     SendAlert = "SendAlert",
+    CreateResourceSync = "CreateResourceSync",
+    UpdateResourceSync = "UpdateResourceSync",
+    RenameResourceSync = "RenameResourceSync",
+    DeleteResourceSync = "DeleteResourceSync",
+    WriteSyncContents = "WriteSyncContents",
+    CommitSync = "CommitSync",
+    RunSync = "RunSync",
     ClearRepoCache = "ClearRepoCache",
     BackupCoreDatabase = "BackupCoreDatabase",
     GlobalAutoUpdate = "GlobalAutoUpdate",
@@ -1500,20 +1493,6 @@ export interface TomlResponse {
 export type ExportAllResourcesToTomlResponse = TomlResponse;
 export type ExportResourcesToTomlResponse = TomlResponse;
 export type FindUserResponse = User;
-export interface GenericResourcesInnerNamedResourceSpec {
-    Kind?: string;
-    Value?: string;
-}
-export interface GenericResourcesInnerDiscreteResourceSpec {
-    Kind?: string;
-    Value?: I64;
-}
-export interface GenericResourcesInner {
-    NamedResourceSpec?: GenericResourcesInnerNamedResourceSpec;
-    DiscreteResourceSpec?: GenericResourcesInnerDiscreteResourceSpec;
-}
-/** User-defined resources can be either Integer resources (e.g, `SSD=3`) or String resources (e.g, `GPU=UUID1`). */
-export type GenericResources = GenericResourcesInner[];
 export interface ActionActionState {
     /** Number of instances of the Action currently running */
     running: number;
@@ -1974,7 +1953,12 @@ export interface RepoActionState {
 }
 export type GetRepoActionStateResponse = RepoActionState;
 export interface RepoConfig {
-    /** The server to clone the repo on. */
+    /** The servers to clone the repo on. Supports multiple servers. */
+    server_ids?: string[];
+    /**
+     * DEPRECATED: Use server_ids instead. Kept for TOML backward compatibility.
+     * This field is only used during deserialization and will be migrated to server_ids.
+     */
     server_id?: string;
     /** Attach a builder to 'build' the repo. */
     builder_id?: string;
@@ -2360,21 +2344,6 @@ export interface StackActionState {
 }
 export type GetStackActionStateResponse = StackActionState;
 export type GetStackLogResponse = Log;
-/**
- * Additional env file configuration for Stack.
- * Supports backward compatibility with string-only format.
- */
-export interface AdditionalEnvFile {
-    /** File path relative to run directory */
-    path: string;
-    /**
-     * Whether Komodo should track this file's contents.
-     * If true (default), Komodo will read, display, diff, and validate.
-     * If false, only passed to docker compose via --env-file.
-     * Useful for externally managed files (e.g., sops decrypted files).
-     */
-    track: boolean;
-}
 export declare enum StackFileRequires {
     /** Diff requires service redeploy. */
     Redeploy = "Redeploy",
@@ -2510,7 +2479,7 @@ export interface StackConfig {
      * Note. It is already included as an `additional_file`.
      * Don't add it again there.
      */
-    additional_env_files?: AdditionalEnvFile[];
+    additional_env_files?: string[];
     /**
      * Add additional config files either in repo or on host to track.
      * Can add any files associated with the stack to enable editing them in the UI.
@@ -2542,16 +2511,6 @@ export interface StackConfig {
      * Only used if `run_build: true`
      */
     build_extra_args?: string[];
-    /**
-     * Optional command wrapper for secrets management tools.
-     * Wraps the docker compose up command with a prefix command.
-     * Use [[COMPOSE_COMMAND]] as placeholder for the full compose command.
-     *
-     * Examples:
-     * - "op run -- [[COMPOSE_COMMAND]]" (1password CLI)
-     * - "sops exec-file --no-fifo /path/to/secret.env '[[COMPOSE_COMMAND]]'" (sops)
-     */
-    compose_cmd_wrapper?: string;
     /**
      * Ignore certain services declared in the compose file when checking
      * the stack status. For example, an init service might be exited, but the
@@ -2674,24 +2633,6 @@ export interface StackInfo {
 }
 export type Stack = Resource<StackConfig, StackInfo>;
 export type GetStackResponse = Stack;
-export interface SwarmActionState {
-}
-export type GetSwarmActionStateResponse = SwarmActionState;
-export interface SwarmConfig {
-    /**
-     * The Servers which are swarm manager nodes.
-     * If a Server is not reachable or gives error,
-     * tries the next Server.
-     */
-    server_ids?: string[];
-    /** Configure quick links that are displayed in the resource header */
-    links?: string[];
-}
-export interface SwarmInfo {
-}
-export type Swarm = Resource<SwarmConfig, SwarmInfo>;
-export type GetSwarmResponse = Swarm;
-export type GetSwarmServiceLogResponse = Log;
 /** System information of a server */
 export interface SystemInformation {
     /** The system name */
@@ -3034,18 +2975,12 @@ export interface MountTmpfsOptions {
     /** The permission mode for the tmpfs mount in an integer. */
     Mode?: I64;
 }
-export interface Mount {
+export interface ContainerMount {
     /** Container path. */
     Target?: string;
     /** Mount source (e.g. a volume name, a host path). */
     Source?: string;
-    /**
-     * The mount type. Available types:
-     * - `bind` Mounts a file or directory from the host into the container. Must exist prior to creating the container.
-     * - `volume` Creates a volume with the given name and options (or uses a pre-existing volume with the same name and options). These are **not** removed when the container is removed.
-     * - `tmpfs` Create a tmpfs with the given options. The mount source cannot be specified for tmpfs. - `npipe` Mounts a named pipe from the host into the container. Must exist prior to creating the container.
-     * - `cluster` a Swarm cluster volume
-     */
+    /** The mount type. Available types:  - `bind` Mounts a file or directory from the host into the container. Must exist prior to creating the container. - `volume` Creates a volume with the given name and options (or uses a pre-existing volume with the same name and options). These are **not** removed when the container is removed. - `tmpfs` Create a tmpfs with the given options. The mount source cannot be specified for tmpfs. - `npipe` Mounts a named pipe from the host into the container. Must exist prior to creating the container. - `cluster` a Swarm cluster volume */
     Type?: MountTypeEnum;
     /** Whether the mount should be read-only. */
     ReadOnly?: boolean;
@@ -3146,7 +3081,7 @@ export interface HostConfig {
     /** A list of volumes to inherit from another container, specified in the form `<container name>[:<ro|rw>]`. */
     VolumesFrom?: string[];
     /** Specification for mounts to be added to the container. */
-    Mounts?: Mount[];
+    Mounts?: ContainerMount[];
     /** Initial console size, as an `[height, width]` array. */
     ConsoleSize?: number[];
     /** Arbitrary non-identifying metadata attached to container and provided to the runtime when the container is started. */
@@ -3603,809 +3538,6 @@ export interface Volume {
 }
 export type InspectDockerVolumeResponse = Volume;
 export type InspectStackContainerResponse = Container;
-export type InspectSwarmConfigResponse = SwarmConfig[];
-export declare enum NodeSpecRoleEnum {
-    EMPTY = "",
-    WORKER = "worker",
-    MANAGER = "manager"
-}
-export declare enum NodeSpecAvailabilityEnum {
-    EMPTY = "",
-    ACTIVE = "active",
-    PAUSE = "pause",
-    DRAIN = "drain"
-}
-export interface NodeSpec {
-    /** Name for the node. */
-    Name?: string;
-    /** User-defined key/value metadata. */
-    Labels?: Record<string, string>;
-    /** Role of the node. */
-    Role?: NodeSpecRoleEnum;
-    /** Availability of the node. */
-    Availability?: NodeSpecAvailabilityEnum;
-}
-export interface Platform {
-    /** Architecture represents the hardware architecture (for example, `x86_64`). */
-    Architecture?: string;
-    /** OS represents the Operating System (for example, `linux` or `windows`). */
-    OS?: string;
-}
-export interface ResourceObject {
-    NanoCPUs?: I64;
-    MemoryBytes?: I64;
-    GenericResources?: GenericResources;
-}
-export interface EngineDescriptionPlugins {
-    Type?: string;
-    Name?: string;
-}
-/** EngineDescription provides information about an engine. */
-export interface EngineDescription {
-    EngineVersion?: string;
-    Labels?: Record<string, string>;
-    Plugins?: EngineDescriptionPlugins[];
-}
-/** Information about the issuer of leaf TLS certificates and the trusted root CA certificate. */
-export interface TlsInfo {
-    /** The root CA certificate(s) that are used to validate leaf TLS certificates. */
-    TrustRoot?: string;
-    /** The base64-url-safe-encoded raw subject bytes of the issuer. */
-    CertIssuerSubject?: string;
-    /** The base64-url-safe-encoded raw public key bytes of the issuer. */
-    CertIssuerPublicKey?: string;
-}
-export interface NodeDescription {
-    Hostname?: string;
-    Platform?: Platform;
-    Resources?: ResourceObject;
-    Engine?: EngineDescription;
-    TLSInfo?: TlsInfo;
-}
-/** NodeState represents the state of a node. */
-export declare enum NodeState {
-    UNKNOWN = "unknown",
-    DOWN = "down",
-    READY = "ready",
-    DISCONNECTED = "disconnected"
-}
-/** NodeStatus represents the status of a node.  It provides the current status of the node, as seen by the manager. */
-export interface NodeStatus {
-    State?: NodeState;
-    Message?: string;
-    /** IP address of the node. */
-    Addr?: string;
-}
-/** Reachability represents the reachability of a node. */
-export declare enum NodeReachability {
-    UNKNOWN = "unknown",
-    UNREACHABLE = "unreachable",
-    REACHABLE = "reachable"
-}
-/** ManagerStatus represents the status of a manager.  It provides the current status of a node's manager component, if the node is a manager. */
-export interface ManagerStatus {
-    Leader?: boolean;
-    Reachability?: NodeReachability;
-    /** The IP address and port at which the manager is reachable. */
-    Addr?: string;
-}
-/** Swarm node details. */
-export interface SwarmNode {
-    ID?: string;
-    Version?: ObjectVersion;
-    /** Date and time at which the node was added to the swarm in [RFC 3339](https://www.ietf.org/rfc/rfc3339.txt) format with nano-seconds. */
-    CreatedAt?: string;
-    /** Date and time at which the node was last updated in [RFC 3339](https://www.ietf.org/rfc/rfc3339.txt) format with nano-seconds. */
-    UpdatedAt?: string;
-    Spec?: NodeSpec;
-    Description?: NodeDescription;
-    Status?: NodeStatus;
-    ManagerStatus?: ManagerStatus;
-}
-export type InspectSwarmNodeResponse = SwarmNode;
-/** Orchestration configuration. */
-export interface SwarmSpecOrchestration {
-    /**
-     * The number of historic tasks to keep per instance or node.
-     * If negative, never remove completed or failed tasks.
-     */
-    TaskHistoryRetentionLimit?: I64;
-}
-/** Raft configuration. */
-export interface SwarmSpecRaft {
-    /** The number of log entries between snapshots. */
-    SnapshotInterval?: U64;
-    /** The number of snapshots to keep beyond the current snapshot. */
-    KeepOldSnapshots?: U64;
-    /** The number of log entries to keep around to sync up slow followers after a snapshot is created. */
-    LogEntriesForSlowFollowers?: U64;
-    /** The number of ticks that a follower will wait for a message from the leader before becoming a candidate and starting an election. `ElectionTick` must be greater than `HeartbeatTick`.  A tick currently defaults to one second, so these translate directly to seconds currently, but this is NOT guaranteed. */
-    ElectionTick?: I64;
-    /**
-     * The number of ticks between heartbeats.
-     * Every HeartbeatTick ticks, the leader will send a heartbeat to the followers.
-     * A tick currently defaults to one second, so these translate directly to seconds currently, but this is NOT guaranteed.
-     */
-    HeartbeatTick?: I64;
-}
-/** Dispatcher configuration. */
-export interface SwarmSpecDispatcher {
-    /** The delay for an agent to send a heartbeat to the dispatcher. */
-    HeartbeatPeriod?: I64;
-}
-export declare enum SwarmSpecCaConfigExternalCasProtocolEnum {
-    EMPTY = "",
-    CFSSL = "cfssl"
-}
-export interface SwarmSpecCaConfigExternalCas {
-    /** Protocol for communication with the external CA (currently only `cfssl` is supported). */
-    Protocol?: SwarmSpecCaConfigExternalCasProtocolEnum;
-    /** URL where certificate signing requests should be sent. */
-    URL?: string;
-    /** An object with key/value pairs that are interpreted as protocol-specific options for the external CA driver. */
-    Options?: Record<string, string>;
-    /** The root CA certificate (in PEM format) this external CA uses to issue TLS certificates (assumed to be to the current swarm root CA certificate if not provided). */
-    CACert?: string;
-}
-/** CA configuration. */
-export interface SwarmSpecCaConfig {
-    /** The duration node certificates are issued for. */
-    NodeCertExpiry?: I64;
-    /** Configuration for forwarding signing requests to an external certificate authority. */
-    ExternalCAs?: SwarmSpecCaConfigExternalCas[];
-    /** The desired signing CA certificate for all swarm node TLS leaf certificates, in PEM format. */
-    SigningCACert?: string;
-    /** The desired signing CA key for all swarm node TLS leaf certificates, in PEM format. */
-    SigningCAKey?: string;
-    /** An integer whose purpose is to force swarm to generate a new signing CA certificate and key, if none have been specified in `SigningCACert` and `SigningCAKey` */
-    ForceRotate?: U64;
-}
-/** Parameters related to encryption-at-rest. */
-export interface SwarmSpecEncryptionConfig {
-    /** If set, generate a key and use it to lock data stored on the managers. */
-    AutoLockManagers?: boolean;
-}
-/** The log driver to use for tasks created in the orchestrator if unspecified by a service.  Updating this value only affects new tasks. Existing tasks continue to use their previously configured log driver until recreated. */
-export interface SwarmSpecTaskDefaultsLogDriver {
-    /** The log driver to use as a default for new tasks. */
-    Name?: string;
-    /** Driver-specific options for the selected log driver, specified as key/value pairs. */
-    Options?: Record<string, string>;
-}
-/** Defaults for creating tasks in this cluster. */
-export interface SwarmSpecTaskDefaults {
-    LogDriver?: SwarmSpecTaskDefaultsLogDriver;
-}
-/** User modifiable swarm configuration. */
-export interface SwarmSpec {
-    /** Name of the swarm. */
-    Name?: string;
-    /** User-defined key/value metadata. */
-    Labels?: Record<string, string>;
-    Orchestration?: SwarmSpecOrchestration;
-    Raft?: SwarmSpecRaft;
-    Dispatcher?: SwarmSpecDispatcher;
-    CAConfig?: SwarmSpecCaConfig;
-    EncryptionConfig?: SwarmSpecEncryptionConfig;
-    TaskDefaults?: SwarmSpecTaskDefaults;
-}
-/** JoinTokens contains the tokens workers and managers need to join the swarm. */
-export interface JoinTokens {
-    /** The token workers can use to join the swarm. */
-    Worker?: string;
-    /** The token managers can use to join the swarm. */
-    Manager?: string;
-}
-/** Docker-level information about the Swarm. */
-export interface SwarmInspectInfo {
-    /** The (Docker) ID of the swarm. */
-    ID?: string;
-    Version?: ObjectVersion;
-    /** Date and time at which the swarm was initialised in [RFC 3339](https://www.ietf.org/rfc/rfc3339.txt) format with nano-seconds. */
-    CreatedAt?: string;
-    /** Date and time at which the swarm was last updated in [RFC 3339](https://www.ietf.org/rfc/rfc3339.txt) format with nano-seconds. */
-    UpdatedAt?: string;
-    Spec?: SwarmSpec;
-    TLSInfo?: TlsInfo;
-    /** Whether there is currently a root CA rotation in progress for the swarm */
-    RootRotationInProgress?: boolean;
-    /** DataPathPort specifies the data path port number for data traffic. Acceptable port range is 1024 to 49151. If no port is set or is set to 0, the default port (4789) is used. */
-    DataPathPort?: number;
-    /** Default Address Pool specifies default subnet pools for global scope networks. */
-    DefaultAddrPool?: string[];
-    /** SubnetSize specifies the subnet size of the networks created from the default subnet pool. */
-    SubnetSize?: number;
-    JoinTokens?: JoinTokens;
-}
-export type InspectSwarmResponse = SwarmInspectInfo;
-/** Driver represents a driver (network, logging, secrets). */
-export interface Driver {
-    /** Name of the driver. */
-    Name: string;
-    /** Key/value map of driver-specific options. */
-    Options?: Record<string, string>;
-}
-export interface SecretSpec {
-    /** User-defined name of the secret. */
-    Name?: string;
-    /** User-defined key/value metadata. */
-    Labels?: Record<string, string>;
-    /**
-     * Data is the data to store as a secret, formatted as a Base64-url-safe-encoded ([RFC 4648](https://tools.ietf.org/html/rfc4648#section-5)) string.
-     * It must be empty if the Driver field is set, in which case the data is loaded from an external secret store.
-     * The maximum allowed size is 500KB, as defined in [MaxSecretSize](https://pkg.go.dev/github.com/moby/swarmkit/v2@v2.0.0-20250103191802-8c1959736554/api/validation#MaxSecretSize).
-     * This field is only used to _create_ a secret, and is not returned by other endpoints.
-     */
-    Data?: string;
-    /** Name of the secrets driver used to fetch the secret's value from an external secret store. */
-    Driver?: Driver;
-    /**
-     * Templating driver, if applicable  Templating controls whether and how to evaluate the config payload as a template.
-     * If no driver is set, no templating is used.
-     */
-    Templating?: Driver;
-}
-/** Swarm secret details. */
-export interface SwarmSecret {
-    ID?: string;
-    Version?: ObjectVersion;
-    CreatedAt?: string;
-    UpdatedAt?: string;
-    Spec?: SecretSpec;
-}
-export type InspectSwarmSecretResponse = SwarmSecret;
-/** Describes a permission the user has to accept upon installing the plugin. */
-export interface PluginPrivilege {
-    Name?: string;
-    Description?: string;
-    Value?: string[];
-}
-/**
- * Plugin spec for the service.
- * *(Experimental release only.)*
- * <p><br /></p>  > **Note**: ContainerSpec, NetworkAttachmentSpec, and PluginSpec are > mutually exclusive. PluginSpec is only used when the Runtime field > is set to `plugin`. NetworkAttachmentSpec is used when the Runtime > field is set to `attachment`.
- */
-export interface TaskSpecPluginSpec {
-    /** The name or 'alias' to use for the plugin. */
-    Name?: string;
-    /** The plugin image reference to use. */
-    Remote?: string;
-    /** Disable the plugin once scheduled. */
-    Disabled?: boolean;
-    PluginPrivilege?: PluginPrivilege[];
-}
-/** CredentialSpec for managed service account (Windows only) */
-export interface TaskSpecContainerSpecPrivilegesCredentialSpec {
-    /** Load credential spec from a Swarm Config with the given ID. The specified config must also be present in the Configs field with the Runtime property set.  <p><br /></p>   > **Note**: `CredentialSpec.File`, `CredentialSpec.Registry`, > and `CredentialSpec.Config` are mutually exclusive. */
-    Config?: string;
-    /** Load credential spec from this file. The file is read by the daemon, and must be present in the `CredentialSpecs` subdirectory in the docker data directory, which defaults to `C:\\ProgramData\\Docker\\` on Windows.  For example, specifying `spec.json` loads `C:\\ProgramData\\Docker\\CredentialSpecs\\spec.json`.  <p><br /></p>  > **Note**: `CredentialSpec.File`, `CredentialSpec.Registry`, > and `CredentialSpec.Config` are mutually exclusive. */
-    File?: string;
-    /** Load credential spec from this value in the Windows registry. The specified registry value must be located in:  `HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Virtualization\\Containers\\CredentialSpecs`  <p><br /></p>   > **Note**: `CredentialSpec.File`, `CredentialSpec.Registry`, > and `CredentialSpec.Config` are mutually exclusive. */
-    Registry?: string;
-}
-/** SELinux labels of the container */
-export interface TaskSpecContainerSpecPrivilegesSeLinuxContext {
-    /** Disable SELinux */
-    Disable?: boolean;
-    /** SELinux user label */
-    User?: string;
-    /** SELinux role label */
-    Role?: string;
-    /** SELinux type label */
-    Type?: string;
-    /** SELinux level label */
-    Level?: string;
-}
-export declare enum TaskSpecContainerSpecPrivilegesSeccompModeEnum {
-    EMPTY = "",
-    DEFAULT = "default",
-    UNCONFINED = "unconfined",
-    CUSTOM = "custom"
-}
-/** Options for configuring seccomp on the container */
-export interface TaskSpecContainerSpecPrivilegesSeccomp {
-    Mode?: TaskSpecContainerSpecPrivilegesSeccompModeEnum;
-    /** The custom seccomp profile as a json object */
-    Profile?: string;
-}
-export declare enum TaskSpecContainerSpecPrivilegesAppArmorModeEnum {
-    EMPTY = "",
-    DEFAULT = "default",
-    DISABLED = "disabled"
-}
-/** Options for configuring AppArmor on the container */
-export interface TaskSpecContainerSpecPrivilegesAppArmor {
-    Mode?: TaskSpecContainerSpecPrivilegesAppArmorModeEnum;
-}
-/** Security options for the container */
-export interface TaskSpecContainerSpecPrivileges {
-    CredentialSpec?: TaskSpecContainerSpecPrivilegesCredentialSpec;
-    SELinuxContext?: TaskSpecContainerSpecPrivilegesSeLinuxContext;
-    Seccomp?: TaskSpecContainerSpecPrivilegesSeccomp;
-    AppArmor?: TaskSpecContainerSpecPrivilegesAppArmor;
-    /** Configuration of the no_new_privs bit in the container */
-    NoNewPrivileges?: boolean;
-}
-/** Specification for DNS related configurations in resolver configuration file (`resolv.conf`). */
-export interface TaskSpecContainerSpecDnsConfig {
-    /** The IP addresses of the name servers. */
-    Nameservers?: string[];
-    /** A search list for host-name lookup. */
-    Search?: string[];
-    /** A list of internal resolver variables to be modified (e.g., `debug`, `ndots:3`, etc.). */
-    Options?: string[];
-}
-/** File represents a specific target that is backed by a file. */
-export interface TaskSpecContainerSpecFile {
-    /** Name represents the final filename in the filesystem. */
-    Name?: string;
-    /** UID represents the file UID. */
-    UID?: string;
-    /** GID represents the file GID. */
-    GID?: string;
-    /** Mode represents the FileMode of the file. */
-    Mode?: number;
-}
-export interface TaskSpecContainerSpecSecrets {
-    File?: TaskSpecContainerSpecFile;
-    /** SecretID represents the ID of the specific secret that we're referencing. */
-    SecretID?: string;
-    /** SecretName is the name of the secret that this references, but this is just provided for lookup/display purposes. The secret in the reference will be identified by its ID. */
-    SecretName?: string;
-}
-export interface TaskSpecContainerSpecConfigs {
-    File?: TaskSpecContainerSpecFile;
-    /** ConfigID represents the ID of the specific config that we're referencing. */
-    ConfigID?: string;
-    /** ConfigName is the name of the config that this references, but this is just provided for lookup/display purposes. The config in the reference will be identified by its ID. */
-    ConfigName?: string;
-}
-export declare enum TaskSpecContainerSpecIsolationEnum {
-    DEFAULT = "default",
-    PROCESS = "process",
-    HYPERV = "hyperv",
-    EMPTY = ""
-}
-/**
- * Container spec for the service.
- * **Note**: ContainerSpec, NetworkAttachmentSpec, and PluginSpec are > mutually exclusive.
- * PluginSpec is only used when the Runtime field > is set to `plugin`.
- * NetworkAttachmentSpec is used when the Runtime > field is set to `attachment`.
- */
-export interface TaskSpecContainerSpec {
-    /** The image name to use for the container */
-    Image?: string;
-    /** User-defined key/value data. */
-    Labels?: Record<string, string>;
-    /** The command to be run in the image. */
-    Command?: string[];
-    /** Arguments to the command. */
-    Args?: string[];
-    /** The hostname to use for the container, as a valid [RFC 1123](https://tools.ietf.org/html/rfc1123) hostname. */
-    Hostname?: string;
-    /** A list of environment variables in the form `VAR=value`. */
-    Env?: string[];
-    /** The working directory for commands to run in. */
-    Dir?: string;
-    /** The user inside the container. */
-    User?: string;
-    /** A list of additional groups that the container process will run as. */
-    Groups?: string[];
-    Privileges?: TaskSpecContainerSpecPrivileges;
-    /** Whether a pseudo-TTY should be allocated. */
-    TTY?: boolean;
-    /** Open `stdin` */
-    OpenStdin?: boolean;
-    /** Mount the container's root filesystem as read only. */
-    ReadOnly?: boolean;
-    /** Specification for mounts to be added to containers created as part of the service. */
-    Mounts?: Mount[];
-    /** Signal to stop the container. */
-    StopSignal?: string;
-    /** Amount of time to wait for the container to terminate before forcefully killing it. */
-    StopGracePeriod?: I64;
-    HealthCheck?: HealthConfig;
-    /** A list of hostname/IP mappings to add to the container's `hosts` file. The format of extra hosts is specified in the [hosts(5)](http://man7.org/linux/man-pages/man5/hosts.5.html) man page:      IP_address canonical_hostname [aliases...] */
-    Hosts?: string[];
-    DNSConfig?: TaskSpecContainerSpecDnsConfig;
-    /** Secrets contains references to zero or more secrets that will be exposed to the service. */
-    Secrets?: TaskSpecContainerSpecSecrets[];
-    /** An integer value containing the score given to the container in order to tune OOM killer preferences. */
-    OomScoreAdj?: I64;
-    /** Configs contains references to zero or more configs that will be exposed to the service. */
-    Configs?: TaskSpecContainerSpecConfigs[];
-    /** Isolation technology of the containers running the service. (Windows only) */
-    Isolation?: TaskSpecContainerSpecIsolationEnum;
-    /** Run an init inside the container that forwards signals and reaps processes. This field is omitted if empty, and the default (as configured on the daemon) is used. */
-    Init?: boolean;
-    /** Set kernel namedspaced parameters (sysctls) in the container. The Sysctls option on services accepts the same sysctls as the are supported on containers. Note that while the same sysctls are supported, no guarantees or checks are made about their suitability for a clustered environment, and it's up to the user to determine whether a given sysctl will work properly in a Service. */
-    Sysctls?: Record<string, string>;
-    /** A list of kernel capabilities to add to the default set for the container. */
-    CapabilityAdd?: string[];
-    /** A list of kernel capabilities to drop from the default set for the container. */
-    CapabilityDrop?: string[];
-    /** A list of resource limits to set in the container. For example: `{\"Name\": \"nofile\", \"Soft\": 1024, \"Hard\": 2048}`\" */
-    Ulimits?: ResourcesUlimits[];
-}
-/** Read-only spec type for non-swarm containers attached to swarm overlay networks.  <p><br /></p>  > **Note**: ContainerSpec, NetworkAttachmentSpec, and PluginSpec are > mutually exclusive. PluginSpec is only used when the Runtime field > is set to `plugin`. NetworkAttachmentSpec is used when the Runtime > field is set to `attachment`. */
-export interface TaskSpecNetworkAttachmentSpec {
-    /** ID of the container represented by this task */
-    ContainerID?: string;
-}
-/** An object describing a limit on resources which can be requested by a task. */
-export interface Limit {
-    NanoCPUs?: I64;
-    MemoryBytes?: I64;
-    /** Limits the maximum number of PIDs in the container. Set `0` for unlimited. */
-    Pids?: I64;
-}
-/** Resource requirements which apply to each individual container created as part of the service. */
-export interface TaskSpecResources {
-    /** Define resources limits. */
-    Limits?: Limit;
-    /** Define resources reservation. */
-    Reservations?: ResourceObject;
-}
-export declare enum TaskSpecRestartPolicyConditionEnum {
-    EMPTY = "",
-    NONE = "none",
-    ON_FAILURE = "on-failure",
-    ANY = "any"
-}
-/** Specification for the restart policy which applies to containers created as part of this service. */
-export interface TaskSpecRestartPolicy {
-    /** Condition for restart. */
-    Condition?: TaskSpecRestartPolicyConditionEnum;
-    /** Delay between restart attempts. */
-    Delay?: I64;
-    /** Maximum attempts to restart a given container before giving up (default value is 0, which is ignored). */
-    MaxAttempts?: I64;
-    /** Windows is the time window used to evaluate the restart policy (default value is 0, which is unbounded). */
-    Window?: I64;
-}
-export interface TaskSpecPlacementSpread {
-    /** label descriptor, such as `engine.labels.az`. */
-    SpreadDescriptor?: string;
-}
-export interface TaskSpecPlacementPreferences {
-    Spread?: TaskSpecPlacementSpread;
-}
-export interface TaskSpecPlacement {
-    /** An array of constraint expressions to limit the set of nodes where a task can be scheduled. Constraint expressions can either use a _match_ (`==`) or _exclude_ (`!=`) rule. Multiple constraints find nodes that satisfy every expression (AND match). Constraints can match node or Docker Engine labels as follows:  node attribute       | matches                        | example ---------------------|--------------------------------|----------------------------------------------- `node.id`            | Node ID                        | `node.id==2ivku8v2gvtg4` `node.hostname`      | Node hostname                  | `node.hostname!=node-2` `node.role`          | Node role (`manager`/`worker`) | `node.role==manager` `node.platform.os`   | Node operating system          | `node.platform.os==windows` `node.platform.arch` | Node architecture              | `node.platform.arch==x86_64` `node.labels`        | User-defined node labels       | `node.labels.security==high` `engine.labels`      | Docker Engine's labels         | `engine.labels.operatingsystem==ubuntu-24.04`  `engine.labels` apply to Docker Engine labels like operating system, drivers, etc. Swarm administrators add `node.labels` for operational purposes by using the [`node update endpoint`](#operation/NodeUpdate). */
-    Constraints?: string[];
-    /** Preferences provide a way to make the scheduler aware of factors such as topology. They are provided in order from highest to lowest precedence. */
-    Preferences?: TaskSpecPlacementPreferences[];
-    /** Maximum number of replicas for per node (default value is 0, which is unlimited) */
-    MaxReplicas?: I64;
-    /** Platforms stores all the platforms that the service's image can run on. This field is used in the platform filter for scheduling. If empty, then the platform filter is off, meaning there are no scheduling restrictions. */
-    Platforms?: Platform[];
-}
-/** Specifies how a service should be attached to a particular network. */
-export interface NetworkAttachmentConfig {
-    /** The target network for attachment. Must be a network name or ID. */
-    Target?: string;
-    /** Discoverable alternate names for the service on this network. */
-    Aliases?: string[];
-    /** Driver attachment options for the network target. */
-    DriverOpts?: Record<string, string>;
-}
-/**
- * Specifies the log driver to use for tasks created from this spec.
- * If not present, the default one for the swarm will be used,
- * finally falling back to the engine default if not specified.
- */
-export interface TaskSpecLogDriver {
-    Name?: string;
-    Options?: Record<string, string>;
-}
-/** User modifiable task configuration. */
-export interface TaskSpec {
-    PluginSpec?: TaskSpecPluginSpec;
-    ContainerSpec?: TaskSpecContainerSpec;
-    NetworkAttachmentSpec?: TaskSpecNetworkAttachmentSpec;
-    Resources?: TaskSpecResources;
-    RestartPolicy?: TaskSpecRestartPolicy;
-    Placement?: TaskSpecPlacement;
-    /** A counter that triggers an update even if no relevant parameters have been changed. */
-    ForceUpdate?: U64;
-    /** Runtime is the type of runtime specified for the task executor. */
-    Runtime?: string;
-    /** Specifies which networks the service should attach to. */
-    Networks?: NetworkAttachmentConfig[];
-    LogDriver?: TaskSpecLogDriver;
-}
-export interface ServiceSpecModeReplicated {
-    Replicas?: I64;
-}
-/** The mode used for services with a finite number of tasks that run to a completed state. */
-export interface ServiceSpecModeReplicatedJob {
-    /** The maximum number of replicas to run simultaneously. */
-    MaxConcurrent?: I64;
-    /** The total number of replicas desired to reach the Completed state. If unset, will default to the value of `MaxConcurrent` */
-    TotalCompletions?: I64;
-}
-/** Scheduling mode for the service. */
-export interface ServiceSpecMode {
-    Replicated?: ServiceSpecModeReplicated;
-    ReplicatedJob?: ServiceSpecModeReplicatedJob;
-}
-export declare enum ServiceSpecUpdateConfigFailureActionEnum {
-    EMPTY = "",
-    CONTINUE = "continue",
-    PAUSE = "pause",
-    ROLLBACK = "rollback"
-}
-export declare enum ServiceSpecUpdateConfigOrderEnum {
-    EMPTY = "",
-    STOP_FIRST = "stop-first",
-    START_FIRST = "start-first"
-}
-/** Specification for the update strategy of the service. */
-export interface ServiceSpecUpdateConfig {
-    /** Maximum number of tasks to be updated in one iteration (0 means unlimited parallelism). */
-    Parallelism?: I64;
-    /** Amount of time between updates, in nanoseconds. */
-    Delay?: I64;
-    /** Action to take if an updated task fails to run, or stops running during the update. */
-    FailureAction?: ServiceSpecUpdateConfigFailureActionEnum;
-    /** Amount of time to monitor each updated task for failures, in nanoseconds. */
-    Monitor?: I64;
-    /** The fraction of tasks that may fail during an update before the failure action is invoked, specified as a floating point number between 0 and 1. */
-    MaxFailureRatio?: number;
-    /** The order of operations when rolling out an updated task. Either the old task is shut down before the new task is started, or the new task is started before the old task is shut down. */
-    Order?: ServiceSpecUpdateConfigOrderEnum;
-}
-export declare enum ServiceSpecRollbackConfigFailureActionEnum {
-    EMPTY = "",
-    CONTINUE = "continue",
-    PAUSE = "pause"
-}
-export declare enum ServiceSpecRollbackConfigOrderEnum {
-    EMPTY = "",
-    STOP_FIRST = "stop-first",
-    START_FIRST = "start-first"
-}
-/** Specification for the rollback strategy of the service. */
-export interface ServiceSpecRollbackConfig {
-    /** Maximum number of tasks to be rolled back in one iteration (0 means unlimited parallelism). */
-    Parallelism?: I64;
-    /** Amount of time between rollback iterations, in nanoseconds. */
-    Delay?: I64;
-    /** Action to take if an rolled back task fails to run, or stops running during the rollback. */
-    FailureAction?: ServiceSpecRollbackConfigFailureActionEnum;
-    /** Amount of time to monitor each rolled back task for failures, in nanoseconds. */
-    Monitor?: I64;
-    /** The fraction of tasks that may fail during a rollback before the failure action is invoked, specified as a floating point number between 0 and 1. */
-    MaxFailureRatio?: number;
-    /** The order of operations when rolling back a task. Either the old task is shut down before the new task is started, or the new task is started before the old task is shut down. */
-    Order?: ServiceSpecRollbackConfigOrderEnum;
-}
-export declare enum EndpointSpecModeEnum {
-    EMPTY = "",
-    VIP = "vip",
-    DNSRR = "dnsrr"
-}
-export declare enum EndpointPortConfigProtocolEnum {
-    EMPTY = "",
-    TCP = "tcp",
-    UDP = "udp",
-    SCTP = "sctp"
-}
-export declare enum EndpointPortConfigPublishModeEnum {
-    EMPTY = "",
-    INGRESS = "ingress",
-    HOST = "host"
-}
-export interface EndpointPortConfig {
-    Name?: string;
-    Protocol?: EndpointPortConfigProtocolEnum;
-    /** The port inside the container. */
-    TargetPort?: I64;
-    /** The port on the swarm hosts. */
-    PublishedPort?: I64;
-    /** The mode in which port is published.  <p><br /></p>  - \"ingress\" makes the target port accessible on every node,   regardless of whether there is a task for the service running on   that node or not. - \"host\" bypasses the routing mesh and publish the port directly on   the swarm node where that service is running. */
-    PublishMode?: EndpointPortConfigPublishModeEnum;
-}
-/** Properties that can be configured to access and load balance a service. */
-export interface EndpointSpec {
-    /** The mode of resolution to use for internal load balancing between tasks. */
-    Mode?: EndpointSpecModeEnum;
-    /** List of exposed ports that this service is accessible on from the outside. Ports can only be provided if `vip` resolution mode is used. */
-    Ports?: EndpointPortConfig[];
-}
-/** User modifiable configuration for a service. */
-export interface ServiceSpec {
-    /** Name of the service. */
-    Name?: string;
-    /** User-defined key/value metadata. */
-    Labels?: Record<string, string>;
-    TaskTemplate?: TaskSpec;
-    Mode?: ServiceSpecMode;
-    UpdateConfig?: ServiceSpecUpdateConfig;
-    RollbackConfig?: ServiceSpecRollbackConfig;
-    /** Specifies which networks the service should attach to.  Deprecated: This field is deprecated since v1.44. The Networks field in TaskSpec should be used instead. */
-    Networks?: NetworkAttachmentConfig[];
-    EndpointSpec?: EndpointSpec;
-}
-export interface ServiceEndpointVirtualIps {
-    NetworkID?: string;
-    Addr?: string;
-}
-export interface ServiceEndpoint {
-    Spec?: EndpointSpec;
-    Ports?: EndpointPortConfig[];
-    VirtualIPs?: ServiceEndpointVirtualIps[];
-}
-export declare enum ServiceUpdateStatusStateEnum {
-    EMPTY = "",
-    UPDATING = "updating",
-    PAUSED = "paused",
-    COMPLETED = "completed",
-    ROLLBACK_STARTED = "rollback_started",
-    ROLLBACK_PAUSED = "rollback_paused",
-    ROLLBACK_COMPLETED = "rollback_completed"
-}
-/** The status of a service update. */
-export interface ServiceUpdateStatus {
-    State?: ServiceUpdateStatusStateEnum;
-    StartedAt?: string;
-    CompletedAt?: string;
-    Message?: string;
-}
-/** The status of the service's tasks. Provided only when requested as part of a ServiceList operation. */
-export interface ServiceServiceStatus {
-    /** The number of tasks for the service currently in the Running state. */
-    RunningTasks?: U64;
-    /**
-     * The number of tasks for the service desired to be running.
-     * For replicated services, this is the replica count from the service spec.
-     * For global services, this is computed by taking count of all tasks for the service with a Desired State other than Shutdown.
-     */
-    DesiredTasks?: U64;
-    /**
-     * The number of tasks for a job that are in the Completed state.
-     * This field must be cross-referenced with the service type, as the value of 0 may mean the service is not in a job mode,
-     * or it may mean the job-mode service has no tasks yet Completed.
-     */
-    CompletedTasks?: U64;
-}
-/** The status of the service when it is in one of ReplicatedJob or GlobalJob modes. Absent on Replicated and Global mode services. The JobIteration is an ObjectVersion, but unlike the Service's version, does not need to be sent with an update request. */
-export interface ServiceJobStatus {
-    /** JobIteration is a value increased each time a Job is executed, successfully or otherwise. \"Executed\", in this case, means the job as a whole has been started, not that an individual Task has been launched. A job is \"Executed\" when its ServiceSpec is updated. JobIteration can be used to disambiguate Tasks belonging to different executions of a job.  Though JobIteration will increase with each subsequent execution, it may not necessarily increase by 1, and so JobIteration should not be used to */
-    JobIteration?: ObjectVersion;
-    /** The last time, as observed by the server, that this job was started. */
-    LastExecution?: string;
-}
-/** Swarm service details. */
-export interface SwarmService {
-    ID?: string;
-    Version?: ObjectVersion;
-    CreatedAt?: string;
-    UpdatedAt?: string;
-    Spec?: ServiceSpec;
-    Endpoint?: ServiceEndpoint;
-    UpdateStatus?: ServiceUpdateStatus;
-    ServiceStatus?: ServiceServiceStatus;
-    JobStatus?: ServiceJobStatus;
-}
-export type InspectSwarmServiceResponse = SwarmService;
-/**
- * Swarm stack service list item.
- * Returned by `docker stack services --format json <NAME>`
- *
- * https://docs.docker.com/reference/cli/docker/stack/services/#format
- */
-export interface SwarmStackServiceListItem {
-    ID?: string;
-    /** Swarm stack task name. */
-    Name?: string;
-    /** The service mode. */
-    Mode?: string;
-    /** The service replicas, formatted as string. */
-    Replicas?: string;
-    /** The image associated with service */
-    Image?: string;
-    /** Task exposed ports, formatted as a string. */
-    Ports?: string;
-}
-/**
- * Swarm stack task list item.
- * Returned by `docker stack ps --format json <NAME>`
- *
- * https://docs.docker.com/reference/cli/docker/stack/ps/#format
- */
-export interface SwarmStackTaskListItem {
-    ID?: string;
-    /** Swarm stack task name. */
-    Name?: string;
-    /** The image associated with task */
-    Image?: string;
-    /** The node the task is running on */
-    Node?: string;
-    DesiredState?: string;
-    CurrentState?: string;
-    /** An error message, if one exists */
-    Error?: string;
-    /** Task exposed ports, formatted as a string. */
-    Ports?: string;
-}
-/**
- * All entities related to docker stack available over CLI.
- * Returned by:
- * ```
- * docker stack services --format json <STACK>
- * docker stack ps --format json <STACK>
- * ```
- */
-export interface SwarmStackLists {
-    /** Swarm stack name. */
-    Name: string;
-    /** Services part of the stack */
-    Services: SwarmStackServiceListItem[];
-    /** Tasks part of the stack */
-    Tasks: SwarmStackTaskListItem[];
-}
-export type InspectSwarmStackResponse = SwarmStackLists;
-export declare enum TaskState {
-    NEW = "new",
-    ALLOCATED = "allocated",
-    PENDING = "pending",
-    ASSIGNED = "assigned",
-    ACCEPTED = "accepted",
-    PREPARING = "preparing",
-    READY = "ready",
-    STARTING = "starting",
-    RUNNING = "running",
-    COMPLETE = "complete",
-    SHUTDOWN = "shutdown",
-    FAILED = "failed",
-    REJECTED = "rejected",
-    REMOVE = "remove",
-    ORPHANED = "orphaned"
-}
-/** represents the status of a container. */
-export interface ContainerStatus {
-    ContainerID?: string;
-    PID?: I64;
-    ExitCode?: I64;
-}
-/** represents the port status of a task's host ports whose service has published host ports */
-export interface PortStatus {
-    Ports?: EndpointPortConfig[];
-}
-/** represents the status of a task. */
-export interface TaskStatus {
-    Timestamp?: string;
-    State?: TaskState;
-    Message?: string;
-    Err?: string;
-    ContainerStatus?: ContainerStatus;
-    PortStatus?: PortStatus;
-}
-/** Swarm task details. */
-export interface SwarmTask {
-    /** The ID of the task. */
-    ID?: string;
-    Version?: ObjectVersion;
-    CreatedAt?: string;
-    UpdatedAt?: string;
-    /** Name of the task. */
-    Name?: string;
-    /** User-defined key/value metadata. */
-    Labels?: Record<string, string>;
-    Spec?: TaskSpec;
-    /** The ID of the service this task is part of. */
-    ServiceID?: string;
-    Slot?: I64;
-    /** The ID of the node that this task is on. */
-    NodeID?: string;
-    AssignedGenericResources?: GenericResources;
-    Status?: TaskStatus;
-    DesiredState?: TaskState;
-    /** If the Service this Task belongs to is a job-mode service, contains the JobIteration of the Service this Task was created for. Absent if the Task was created for a Replicated or Global Service. */
-    JobIteration?: ObjectVersion;
-}
-export type InspectSwarmTaskResponse = SwarmTask;
 export type JsonObject = any;
 export type JsonValue = any;
 export type ListActionsResponse = ActionListItem[];
@@ -4428,7 +3560,7 @@ export interface Port {
 }
 /** Container summary returned by container list apis. */
 export interface ContainerListItem {
-    /** The Server which hosts the container. */
+    /** The Server which holds the container. */
     server_id?: string;
     /** The first name in Names, not including the initial '/' */
     name: string;
@@ -4466,6 +3598,25 @@ export interface ContainerListItem {
     labels?: Record<string, string>;
 }
 export type ListAllDockerContainersResponse = ContainerListItem[];
+/**
+ * Info about an active terminal on a server.
+ * Retrieve with [ListAllTerminals][crate::api::read::server::ListAllTerminals].
+ */
+export interface TerminalInfoWithServer {
+    /** The server id. */
+    server_id: string;
+    /** The server name. */
+    server_name: string;
+    /** The name of the terminal. */
+    name: string;
+    /** The root program / args of the pty */
+    command: string;
+    /** The size of the terminal history in memory. */
+    stored_size_kb: number;
+    /** When the Terminal was created in unix milliseconds. */
+    created_at: I64;
+}
+export type ListAllTerminalsResponse = TerminalInfoWithServer[];
 /** An api key used to authenticate requests via request headers. */
 export interface ApiKey {
     /** Unique key associated with secret */
@@ -4589,7 +3740,6 @@ export type ListFullReposResponse = Repo[];
 export type ListFullResourceSyncsResponse = ResourceSync[];
 export type ListFullServersResponse = Server[];
 export type ListFullStacksResponse = Stack[];
-export type ListFullSwarmsResponse = Swarm[];
 export type ListGitProviderAccountsResponse = GitProviderAccount[];
 export interface GitProvider {
     /** The git provider domain. Default: `github.com`. */
@@ -4671,8 +3821,8 @@ export declare enum RepoState {
     Building = "Building"
 }
 export interface RepoListItemInfo {
-    /** The server that repo sits on. */
-    server_id: string;
+    /** The servers that repo sits on. */
+    server_ids: string[];
     /** The builder that builds the repo. */
     builder_id: string;
     /** Repo last cloned / pulled timestamp in ms. */
@@ -4908,130 +4058,6 @@ export interface StackListItemInfo {
 }
 export type StackListItem = ResourceListItem<StackListItemInfo>;
 export type ListStacksResponse = StackListItem[];
-/**
- * Swarm config list item.
- * Returned by `docker config ls --format json`
- */
-export interface SwarmConfigListItem {
-    /** User-defined name of the config. */
-    Name?: string;
-    ID?: string;
-    CreatedAt?: string;
-    UpdatedAt?: string;
-    /**
-     * User-defined key/value metadata, formatted as a string:
-     * `"lab1=val1,lab2=val2"`.
-     */
-    Labels?: string;
-}
-export type ListSwarmConfigsResponse = SwarmConfigListItem[];
-/** Swarm node list item. */
-export interface SwarmNodeListItem {
-    ID?: string;
-    /** Name for the node. */
-    Name?: string;
-    Hostname?: string;
-    /** Role of the node. */
-    Role?: NodeSpecRoleEnum;
-    /** Availability of the node. */
-    Availability?: NodeSpecAvailabilityEnum;
-    /** State of the node */
-    State?: NodeState;
-    /** Date and time at which the node was added to the swarm in [RFC 3339](https://www.ietf.org/rfc/rfc3339.txt) format with nano-seconds. */
-    CreatedAt?: string;
-    /** Date and time at which the node was last updated in [RFC 3339](https://www.ietf.org/rfc/rfc3339.txt) format with nano-seconds. */
-    UpdatedAt?: string;
-}
-export type ListSwarmNodesResponse = SwarmNodeListItem[];
-/** Swarm secret list item. */
-export interface SwarmSecretListItem {
-    ID?: string;
-    /** User-defined name of the secret. */
-    Name?: string;
-    /** Name of the secrets driver used to fetch the secret's value from an external secret store. */
-    Driver?: string;
-    /**
-     * Templating driver, if applicable  Templating controls whether and how to evaluate the config payload as a template.
-     * If no driver is set, no templating is used.
-     */
-    Templating?: string;
-    CreatedAt?: string;
-    UpdatedAt?: string;
-}
-export type ListSwarmSecretsResponse = SwarmSecretListItem[];
-/** Swarm service list item. */
-export interface SwarmServiceListItem {
-    ID?: string;
-    /** Name of the service. */
-    Name?: string;
-    /** The image associated with service */
-    Image?: string;
-    /** Runtime is the type of runtime specified for the task executor. */
-    Runtime?: string;
-    /** Condition for restart. */
-    Restart?: TaskSpecRestartPolicyConditionEnum;
-    /** Number of replicas */
-    Replicas?: I64;
-    CreatedAt?: string;
-    UpdatedAt?: string;
-}
-export type ListSwarmServicesResponse = SwarmServiceListItem[];
-/**
- * Swarm stack list item.
- * Returned by `docker stack ls --format json`
- *
- * https://docs.docker.com/reference/cli/docker/stack/ls/#format
- */
-export interface SwarmStackListItem {
-    /** Swarm stack name. */
-    Name?: string;
-    /** Number of services which are part of the stack */
-    Services?: string;
-    /** The stack orchestrator */
-    Orchestrator?: string;
-    /** The stack namespace */
-    Namespace?: string;
-}
-export type ListSwarmStacksResponse = SwarmStackListItem[];
-/** Swarm task list item. */
-export interface SwarmTaskListItem {
-    /** The ID of the task. */
-    ID?: string;
-    /** Name of the task. */
-    Name?: string;
-    /** The ID of the node that this task is on. */
-    NodeID?: string;
-    /** The ID of the service this task is part of. */
-    ServiceID?: string;
-    /** The ID of container associated with this task. */
-    ContainerID?: string;
-    State?: TaskState;
-    DesiredState?: TaskState;
-    CreatedAt?: string;
-    UpdatedAt?: string;
-}
-export type ListSwarmTasksResponse = SwarmTaskListItem[];
-export declare enum SwarmState {
-    /** Unknown case */
-    Unknown = "Unknown",
-    /** The Swarm is healthy, all nodes OK */
-    Healthy = "Healthy",
-    /** The Swarm is unhealthy */
-    Unhealthy = "Unhealthy"
-}
-export interface SwarmListItemInfo {
-    /** Servers part of the swarm */
-    server_ids: string[];
-    /** The Swarm state */
-    state: SwarmState;
-    /**
-     * If there is an error reaching
-     * Swarm, message will be given here.
-     */
-    err?: string;
-}
-export type SwarmListItem = ResourceListItem<SwarmListItemInfo>;
-export type ListSwarmsResponse = SwarmListItem[];
 /** Information about a process on the system. */
 export interface SystemProcess {
     /** The process PID */
@@ -5059,49 +4085,21 @@ export interface SystemProcess {
 }
 export type ListSystemProcessesResponse = SystemProcess[];
 export type ListTagsResponse = Tag[];
-export type TerminalTarget = {
-    type: "Server";
-    params: {
-        server?: string;
-    };
-} | {
-    type: "Container";
-    params: {
-        server: string;
-        container: string;
-    };
-} | {
-    type: "Stack";
-    params: {
-        stack: string;
-        service?: string;
-    };
-} | {
-    type: "Deployment";
-    params: {
-        deployment: string;
-    };
-};
 /**
- * Represents an active terminal on a server.
+ * Info about an active terminal on a server.
  * Retrieve with [ListTerminals][crate::api::read::server::ListTerminals].
  */
-export interface Terminal {
+export interface TerminalInfo {
     /** The name of the terminal. */
     name: string;
-    /** The target resource of the Terminal. */
-    target: TerminalTarget;
-    /** The command used to init the shell. */
+    /** The root program / args of the pty */
     command: string;
     /** The size of the terminal history in memory. */
     stored_size_kb: number;
-    /**
-     * When the Terminal was created.
-     * Unix timestamp milliseconds.
-     */
+    /** When the Terminal was created. */
     created_at: I64;
 }
-export type ListTerminalsResponse = Terminal[];
+export type ListTerminalsResponse = TerminalInfo[];
 export type ListUserGroupsResponse = UserGroup[];
 export type ListUserTargetPermissionsResponse = Permission[];
 export type ListUsersResponse = User[];
@@ -5126,7 +4124,6 @@ export type ResourceSyncQuery = ResourceQuery<ResourceSyncQuerySpecifics>;
 export type SearchContainerLogResponse = Log;
 export type SearchDeploymentLogResponse = Log;
 export type SearchStackLogResponse = Log;
-export type SearchSwarmServiceLogResponse = Log;
 export interface ServerQuerySpecifics {
 }
 /** Server-specific query */
@@ -5152,11 +4149,6 @@ export interface StackQuerySpecifics {
     update_available?: boolean;
 }
 export type StackQuery = ResourceQuery<StackQuerySpecifics>;
-export interface SwarmQuerySpecifics {
-    /** Filter swarms by server ids. */
-    servers: string[];
-}
-export type SwarmQuery = ResourceQuery<SwarmQuerySpecifics>;
 export type UpdateDockerRegistryAccountResponse = DockerRegistryAccount;
 export type UpdateGitProviderAccountResponse = GitProviderAccount;
 export type UpdateOnboardingKeyResponse = OnboardingKey;
@@ -5186,7 +4178,6 @@ export type _PartialResourceSyncConfig = Partial<ResourceSyncConfig>;
 export type _PartialServerBuilderConfig = Partial<ServerBuilderConfig>;
 export type _PartialServerConfig = Partial<ServerConfig>;
 export type _PartialStackConfig = Partial<StackConfig>;
-export type _PartialSwarmConfig = Partial<SwarmConfig>;
 export type _PartialTag = Partial<Tag>;
 export type _PartialUrlBuilderConfig = Partial<UrlBuilderConfig>;
 export interface __Serror {
@@ -5209,6 +4200,12 @@ export interface AwsBuilderConfig {
     instance_type: string;
     /** The size of the builder volume in gb */
     volume_gb: number;
+    /**
+     * The port periphery will be running on.
+     * Default: `8120`
+     */
+    port: number;
+    use_https: boolean;
     /**
      * The EC2 ami id to create.
      * The ami should have the periphery client configured to start on startup,
@@ -5236,12 +4233,6 @@ export interface AwsBuilderConfig {
     security_group_ids?: string[];
     /** The user data to deploy the instance with. */
     user_data?: string;
-    /**
-     * The port periphery will be running on.
-     * Default: `8120`
-     */
-    port: number;
-    use_https: boolean;
     /**
      * An expected public key associated with Periphery private key.
      * If empty, doesn't validate Periphery public key.
@@ -5305,7 +4296,7 @@ export interface BatchCloneRepo {
  * Response: [NoData]
  */
 export interface BatchDeleteAllTerminals {
-    /** Optional structured query to filter servers. */
+    /** optional structured query to filter servers. */
     query?: ServerQuery;
 }
 /** Deploys multiple Deployments in parallel that match pattern. Response: [BatchExecutionResponse]. */
@@ -5550,20 +4541,6 @@ export interface CommitSync {
     /** Id or name */
     sync: string;
 }
-export interface ConfigSpec {
-    /** User-defined name of the config. */
-    Name?: string;
-    /** User-defined key/value metadata. */
-    Labels?: Record<string, string>;
-    /**
-     * Data is the data to store as a config, formatted as a Base64-url-safe-encoded ([RFC 4648](https://tools.ietf.org/html/rfc4648#section-5)) string.
-     * It must be empty if the Driver field is set, in which case the data is loaded from an external secret store.
-     * The maximum allowed size is 500KB, as defined in [MaxSecretSize](https://pkg.go.dev/github.com/moby/swarmkit/v2@v2.0.0-20250103191802-8c1959736554/api/validation#MaxSecretSize).
-     */
-    Data?: string;
-    /** Templating driver, if applicable  Templating controls whether and how to evaluate the config payload as a template. If no driver is set, no templating is used. */
-    Templating?: Driver;
-}
 /**
  * Configures the behavior of [CreateTerminal] if the
  * specified terminal name already exists.
@@ -5571,7 +4548,7 @@ export interface ConfigSpec {
 export declare enum TerminalRecreateMode {
     /**
      * Never kill the old terminal if it already exists.
-     * If the init command is different, returns error.
+     * If the command is different, returns error.
      */
     Never = "Never",
     /** Always kill the old terminal and create new one */
@@ -5579,48 +4556,103 @@ export declare enum TerminalRecreateMode {
     /** Only kill and recreate if the command is different. */
     DifferentCommand = "DifferentCommand"
 }
-/** Specify the container terminal mode (exec or attach) */
-export declare enum ContainerTerminalMode {
-    Exec = "exec",
-    Attach = "attach"
-}
-/** Args to init the Terminal if needed. */
-export interface InitTerminal {
+/** Query to connect to a container attach session (interactive shell over websocket) on the given server. */
+export interface ConnectContainerAttachQuery {
+    /** Server Id or name */
+    server: string;
+    /** The container name */
+    container: string;
     /**
-     * The shell command (eg `bash`) to init the shell.
-     *
-     * Default:
-     * - Server: Configured on each Periphery
-     * - Container: `sh`
+     * Specify the recreate behavior.
+     * Default is 'DifferentCommand'
      */
-    command?: string;
-    /** Default: `Never` */
     recreate?: TerminalRecreateMode;
-    /**
-     * Only relevant for container-type terminals.
-     * Specify the container terminal mode (`exec` or `attach`).
-     * Default: `exec`
-     */
-    mode?: ContainerTerminalMode;
 }
-/** Connect to a Terminal. */
+/** Query to connect to a container exec session (interactive shell over websocket) on the given server. */
+export interface ConnectContainerExecQuery {
+    /** Server Id or name */
+    server: string;
+    /** The container name */
+    container: string;
+    /** The shell to use (eg. `sh` or `bash`) */
+    shell: string;
+    /**
+     * Specify the recreate behavior.
+     * Default is 'DifferentCommand'
+     */
+    recreate?: TerminalRecreateMode;
+}
+/**
+ * Query to connect to a container attach session (interactive shell over websocket) on the given Deployment.
+ * This call will use access to the Deployment Terminal to permission the call.
+ */
+export interface ConnectDeploymentAttachQuery {
+    /** Deployment Id or name */
+    deployment: string;
+    /**
+     * Specify the recreate behavior.
+     * Default is 'DifferentCommand'
+     */
+    recreate?: TerminalRecreateMode;
+}
+/**
+ * Query to connect to a container exec session (interactive shell over websocket) on the given Deployment.
+ * This call will use access to the Deployment Terminal to permission the call.
+ */
+export interface ConnectDeploymentExecQuery {
+    /** Deployment Id or name */
+    deployment: string;
+    /** The shell to use (eg. `sh` or `bash`) */
+    shell: string;
+    /**
+     * Specify the recreate behavior.
+     * Default is 'DifferentCommand'
+     */
+    recreate?: TerminalRecreateMode;
+}
+/**
+ * Query to connect to a container attach session (interactive shell over websocket) on the given Stack / service.
+ * This call will use access to the Stack Terminal to permission the call.
+ */
+export interface ConnectStackAttachQuery {
+    /** Stack Id or name */
+    stack: string;
+    /** The service name to attach to */
+    service: string;
+    /**
+     * Specify the recreate behavior.
+     * Default is 'DifferentCommand'
+     */
+    recreate?: TerminalRecreateMode;
+}
+/**
+ * Query to connect to a container exec session (interactive shell over websocket) on the given Stack / service.
+ * This call will use access to the Stack Terminal to permission the call.
+ */
+export interface ConnectStackExecQuery {
+    /** Stack Id or name */
+    stack: string;
+    /** The service name to connect to */
+    service: string;
+    /** The shell to use (eg. `sh` or `bash`) */
+    shell: string;
+    /**
+     * Specify the recreate behavior.
+     * Default is 'DifferentCommand'
+     */
+    recreate?: TerminalRecreateMode;
+}
+/** Query to connect to a terminal (interactive shell over websocket) on the given server. */
 export interface ConnectTerminalQuery {
-    /** The target to create terminal for. */
-    target: TerminalTarget;
+    /** Server Id or name */
+    server: string;
     /**
-     * Terminal name to connect to.
-     * If it may not exist yet, also pass 'init' params
-     * to include initialization.
-     * Default: Depends on target.
+     * Each periphery can keep multiple terminals open.
+     * If a terminals with the specified name does not exist,
+     * the call will fail.
+     * Create a terminal using [CreateTerminal][super::write::server::CreateTerminal]
      */
-    terminal?: string;
-    /**
-     * Pass to init the terminal session
-     * for when the terminal doesn't already exist.
-     *
-     * Example: ?...(query)&init[command]=bash&init[recreate]=DifferentCommand
-     */
-    init?: InitTerminal;
+    terminal: string;
 }
 /** Blkio stats entry.  This type is Linux-specific and omitted for Windows containers. */
 export interface ContainerBlkioStatEntry {
@@ -5929,16 +4961,6 @@ export interface CopyStack {
     /** The id of the stack to copy. */
     id: string;
 }
-/**
- * Creates a new Swarm with given `name` and the configuration
- * of the Swarm at the given `id`. Response: [Swarm].
- */
-export interface CopySwarm {
-    /** The name of the new swarm. */
-    name: string;
-    /** The id of the swarm to copy. */
-    id: string;
-}
 /** Create a action. Response: [Action]. */
 export interface CreateAction {
     /** The name given to newly created action. */
@@ -6149,13 +5171,6 @@ export interface CreateStack {
     /** Optional partial config to initialize the stack with. */
     config?: _PartialStackConfig;
 }
-/** Create a Swarm. Response: [Swarm]. */
-export interface CreateSwarm {
-    /** The name given to newly created swarm. */
-    name: string;
-    /** Optional partial config to initialize the swarm with. */
-    config?: _PartialSwarmConfig;
-}
 /** Create a tag. Response: [Tag]. */
 export interface CreateTag {
     /** The name of the tag. */
@@ -6164,32 +5179,23 @@ export interface CreateTag {
     color?: TagColor;
 }
 /**
- * Create a Terminal.
- * Requires minimum Read + Terminal permission on the target Resource.
+ * Create a terminal on the server.
  * Response: [NoData]
  */
 export interface CreateTerminal {
-    /** A name for the Terminal session. */
+    /** Server Id or name */
+    server: string;
+    /** The name of the terminal on the server to create. */
     name: string;
-    /** The target to create terminal for */
-    target: TerminalTarget;
     /**
      * The shell command (eg `bash`) to init the shell.
      *
-     * Default:
-     * - Server: Configured on each Periphery
-     * - ContainerExec: `sh`
-     * - Attach: unused
+     * This can also include args:
+     * `docker exec -it container sh`
+     *
+     * Default: Configured on each Periphery
      */
     command?: string;
-    /**
-     * For container terminals, choose 'exec' or 'attach'.
-     *
-     * Default
-     * - Server: ignored
-     * - Container / Stack / Deployment: `exec`
-     */
-    mode?: ContainerTerminalMode;
     /** Default: `Never` */
     recreate?: TerminalRecreateMode;
 }
@@ -6231,7 +5237,7 @@ export interface DeleteAlerter {
     id: string;
 }
 /**
- * Delete all Terminals on the Server.
+ * Delete all terminals on the server.
  * Response: [NoData]
  */
 export interface DeleteAllTerminals {
@@ -6364,14 +5370,6 @@ export interface DeleteStack {
     id: string;
 }
 /**
- * Deletes the Swarm at the given id, and returns the deleted Swarm.
- * Response: [Swarm]
- */
-export interface DeleteSwarm {
-    /** The id or name of the swarm to delete. */
-    id: string;
-}
-/**
  * Delete a tag, and return the deleted tag. Response: [Tag].
  *
  * Note. Will also remove this tag from all attached resources.
@@ -6381,13 +5379,13 @@ export interface DeleteTag {
     id: string;
 }
 /**
- * Delete a terminal.
+ * Delete a terminal on the server.
  * Response: [NoData]
  */
 export interface DeleteTerminal {
-    /** Server / Container / Stack / Deployment */
-    target: TerminalTarget;
-    /** The name of the Terminal to delete. */
+    /** Server Id or name */
+    server: string;
+    /** The name of the terminal on the server to delete. */
     terminal: string;
 }
 /**
@@ -6522,14 +5520,6 @@ export interface DiscordAlerterEndpoint {
     /** The Discord webhook url */
     url: string;
 }
-/** Standard docker lists available from a Server. */
-export interface DockerLists {
-    containers: ContainerListItem[];
-    networks: NetworkListItem[];
-    images: ImageListItem[];
-    volumes: VolumeListItem[];
-    projects: ComposeProject[];
-}
 export interface EnvironmentVar {
     variable: string;
     value: string;
@@ -6543,17 +5533,72 @@ export interface ExchangeForJwt {
     /** The 'exchange token' */
     token: string;
 }
+/** Execute a command in the given containers shell. */
+export interface ExecuteContainerExecBody {
+    /** Server Id or name */
+    server: string;
+    /** The container name */
+    container: string;
+    /** The shell to use (eg. `sh` or `bash`) */
+    shell: string;
+    /** The command to execute. */
+    command: string;
+    /**
+     * Specify the recreate behavior.
+     * Default is 'DifferentCommand'
+     */
+    recreate?: TerminalRecreateMode;
+}
+/** Execute a command in the given containers shell. */
+export interface ExecuteDeploymentExecBody {
+    /** Deployment Id or name */
+    deployment: string;
+    /** The shell to use (eg. `sh` or `bash`) */
+    shell: string;
+    /** The command to execute. */
+    command: string;
+    /**
+     * Specify the recreate behavior.
+     * Default is 'DifferentCommand'
+     */
+    recreate?: TerminalRecreateMode;
+}
+/** Execute a command in the given containers shell. */
+export interface ExecuteStackExecBody {
+    /** Stack Id or name */
+    stack: string;
+    /** The service name to connect to */
+    service: string;
+    /** The shell to use (eg. `sh` or `bash`) */
+    shell: string;
+    /** The command to execute. */
+    command: string;
+    /**
+     * Specify the recreate behavior.
+     * Default is 'DifferentCommand'
+     */
+    recreate?: TerminalRecreateMode;
+}
+/** Init a terminal on the server. */
+export interface InitTerminal {
+    /**
+     * The shell command (eg `bash`) to init the shell.
+     *
+     * This can also include args:
+     * `docker exec -it container sh`
+     *
+     * Default: Configured on each Periphery
+     */
+    command?: string;
+    /** Default: `Never` */
+    recreate?: TerminalRecreateMode;
+}
 /** Execute a terminal command on the given server. */
 export interface ExecuteTerminalBody {
-    /** The target to create terminal for. */
-    target: TerminalTarget;
-    /**
-     * Terminal name to connect to.
-     * If it may not exist yet, also pass 'init' params
-     * to include initialization.
-     * Default: Depends on target.
-     */
-    terminal?: string;
+    /** Server Id or name */
+    server: string;
+    /** The name of the terminal on the server to use to execute. */
+    terminal: string;
     /** The command to execute. */
     command: string;
     /**
@@ -7211,58 +6256,6 @@ export interface GetStacksSummaryResponse {
     /** The number of stacks with Unknown state. */
     unknown: number;
 }
-/** Get a specific swarm. Response: [Swarm]. */
-export interface GetSwarm {
-    /** Id or name */
-    swarm: string;
-}
-/** Get current action state for the swarm. Response: [SwarmActionState]. */
-export interface GetSwarmActionState {
-    /** Id or name */
-    swarm: string;
-}
-/**
- * Get a swarm service's logs. Response: [GetSwarmServiceLogResponse].
- *
- * Note. This call will hit the underlying server directly for most up to date log.
- */
-export interface GetSwarmServiceLog {
-    /** Id or name */
-    swarm: string;
-    /** Select the swarm service to get logs for. */
-    service: string;
-    /**
-     * The number of lines of the log tail to include.
-     * Default: 100.
-     * Max: 5000.
-     */
-    tail: U64;
-    /** Enable `--timestamps` */
-    timestamps?: boolean;
-    /** Enable `--no-task-ids` */
-    no_task_ids?: boolean;
-    /** Enable `--no-resolve` */
-    no_resolve?: boolean;
-    /** Enable `--details` */
-    details?: boolean;
-}
-/**
- * Gets a summary of data relating to all swarms.
- * Response: [GetSwarmsSummaryResponse].
- */
-export interface GetSwarmsSummary {
-}
-/** Response for [GetSwarmsSummary] */
-export interface GetSwarmsSummaryResponse {
-    /** The total number of Swarms */
-    total: number;
-    /** The number of Swarms with Healthy state. */
-    healthy: number;
-    /** The number of Swarms with Unhealthy state */
-    unhealthy: number;
-    /** The number of Swarms with Unknown state */
-    unknown: number;
-}
 /**
  * Get the system information of the target server.
  * Response: [SystemInformation].
@@ -7402,74 +6395,6 @@ export interface InspectStackContainer {
     /** The service name to inspect */
     service: string;
 }
-/**
- * Inspect information about the swarm.
- * Response: [SwarmInspectInfo].
- */
-export interface InspectSwarm {
-    /** Id or name */
-    swarm: string;
-}
-/**
- * Inspect a config on the target Swarm.
- * Response: [InspectSwarmConfigResponse].
- */
-export interface InspectSwarmConfig {
-    /** Id or name */
-    swarm: string;
-    /** Swarm config ID or Name */
-    config: string;
-}
-/**
- * Inspect a Swarm node.
- * Response: [SwarmNode].
- */
-export interface InspectSwarmNode {
-    /** Id or name */
-    swarm: string;
-    /** Node id */
-    node: string;
-}
-/**
- * Inspect a Swarm secret.
- * Response: [SwarmSecret].
- */
-export interface InspectSwarmSecret {
-    /** Id or name */
-    swarm: string;
-    /** Secret id */
-    secret: string;
-}
-/**
- * Inspect a Swarm service.
- * Response: [SwarmService].
- */
-export interface InspectSwarmService {
-    /** Id or name */
-    swarm: string;
-    /** Service id */
-    service: string;
-}
-/**
- * Inspect a stack on the target Swarm.
- * Response: [SwarmStackLists].
- */
-export interface InspectSwarmStack {
-    /** Id or name */
-    swarm: string;
-    /** Swarm stack name */
-    stack: string;
-}
-/**
- * Inspect a Swarm task.
- * Response: [SwarmTask].
- */
-export interface InspectSwarmTask {
-    /** Id or name */
-    swarm: string;
-    /** Task id */
-    task: string;
-}
 export interface LatestCommit {
     hash: string;
     message: string;
@@ -7540,6 +6465,19 @@ export interface ListAllDockerContainers {
     servers?: string[];
     /** Filter by container name. */
     containers?: string[];
+}
+/**
+ * List the current terminals on specified server.
+ * Response: [ListAllTerminalsResponse].
+ */
+export interface ListAllTerminals {
+    /** optional structured query to filter servers. */
+    query?: ServerQuery;
+    /**
+     * Force a fresh call to Periphery for the list.
+     * Otherwise the response will be cached for 30s
+     */
+    fresh?: boolean;
 }
 /**
  * Gets list of api keys for the calling user.
@@ -7745,11 +6683,6 @@ export interface ListFullStacks {
     /** optional structured query to filter stacks. */
     query?: StackQuery;
 }
-/** List Swarms matching optional query. Response: [ListFullSwarmsResponse]. */
-export interface ListFullSwarms {
-    /** optional structured query to filter swarms. */
-    query?: SwarmQuery;
-}
 /**
  * List git provider accounts matching optional query.
  * Response: [ListGitProviderAccountsResponse].
@@ -7841,59 +6774,6 @@ export interface ListStacks {
     query?: StackQuery;
 }
 /**
- * List configs on the target Swarm.
- * Response: [ListSwarmConfigsResponse].
- */
-export interface ListSwarmConfigs {
-    /** Id or name */
-    swarm: string;
-}
-/**
- * List nodes part of the target Swarm.
- * Response: [ListSwarmNodesResponse].
- */
-export interface ListSwarmNodes {
-    /** Id or name */
-    swarm: string;
-}
-/**
- * List secrets on the target Swarm.
- * Response: [ListSwarmSecretsResponse].
- */
-export interface ListSwarmSecrets {
-    /** Id or name */
-    swarm: string;
-}
-/**
- * List services on the target Swarm.
- * Response: [ListSwarmServicesResponse].
- */
-export interface ListSwarmServices {
-    /** Id or name */
-    swarm: string;
-}
-/**
- * List stacks on the target Swarm.
- * Response: [ListSwarmStacksResponse].
- */
-export interface ListSwarmStacks {
-    /** Id or name */
-    swarm: string;
-}
-/**
- * List tasks on the target Swarm.
- * Response: [ListSwarmTasksResponse].
- */
-export interface ListSwarmTasks {
-    /** Id or name */
-    swarm: string;
-}
-/** List Swarms matching optional query. Response: [ListSwarmsResponse]. */
-export interface ListSwarms {
-    /** Optional structured query to filter Swarms. */
-    query?: SwarmQuery;
-}
-/**
  * List the processes running on the target server.
  * Response: [ListSystemProcessesResponse].
  *
@@ -7913,14 +6793,17 @@ export interface ListTags {
     query?: MongoDocument;
 }
 /**
- * List Terminals.
+ * List the current terminals on specified server.
  * Response: [ListTerminalsResponse].
  */
 export interface ListTerminals {
-    /** Filter the Terminals returned by the Target. */
-    target?: TerminalTarget;
-    /** Return results with resource names instead of ids. */
-    use_names?: boolean;
+    /** Id or name */
+    server: string;
+    /**
+     * Force a fresh call to Periphery for the list.
+     * Otherwise the response will be cached for 30s
+     */
+    fresh?: boolean;
 }
 /**
  * Paginated endpoint for updates matching optional query.
@@ -8322,16 +7205,6 @@ export interface RenameStack {
     /** The new name. */
     name: string;
 }
-/**
- * Rename the Swarm at id to the given name.
- * Response: [Update].
- */
-export interface RenameSwarm {
-    /** The id or name of the Swarm to rename. */
-    id: string;
-    /** The new name. */
-    name: string;
-}
 /** Rename a tag at id. Response: [Tag]. */
 export interface RenameTag {
     /** The id of the tag to rename. */
@@ -8437,7 +7310,6 @@ export interface UserGroupToml {
 }
 /** Specifies resources to sync on Komodo */
 export interface ResourcesToml {
-    swarms?: ResourceToml<_PartialSwarmConfig>[];
     servers?: ResourceToml<_PartialServerConfig>[];
     deployments?: ResourceToml<_PartialDeploymentConfig>[];
     stacks?: ResourceToml<_PartialStackConfig>[];
@@ -8676,37 +7548,6 @@ export interface SearchStackLog {
     timestamps?: boolean;
 }
 /**
- * Search the swarm service log's tail using `grep`. All lines go to stdout.
- * Response: [SearchSwarmServiceLogResponse].
- *
- * Note. This call will hit the underlying server directly for most up to date log.
- */
-export interface SearchSwarmServiceLog {
-    /** Id or name */
-    swarm: string;
-    /** Select the swarm service to get logs for. */
-    service: string;
-    /** The terms to search for. */
-    terms: string[];
-    /**
-     * When searching for multiple terms, can use `AND` or `OR` combinator.
-     *
-     * - `AND`: Only include lines with **all** terms present in that line.
-     * - `OR`: Include lines that have one or more matches in the terms.
-     */
-    combinator?: SearchCombinator;
-    /** Invert the results, ie return all lines that DON'T match the terms / combinator. */
-    invert?: boolean;
-    /** Enable `--timestamps` */
-    timestamps?: boolean;
-    /** Enable `--no-task-ids` */
-    no_task_ids?: boolean;
-    /** Enable `--no-resolve` */
-    no_resolve?: boolean;
-    /** Enable `--details` */
-    details?: boolean;
-}
-/**
  * Send a custom alert message to configured Alerters. Response: [Update].
  * Alias: `alert`
  */
@@ -8882,19 +7723,6 @@ export interface StopStack {
      * If empty, will stop all services.
      */
     services?: string[];
-}
-/** Swarm config details. */
-export interface SwarmConfig {
-    ID?: string;
-    Version?: ObjectVersion;
-    CreatedAt?: string;
-    UpdatedAt?: string;
-    Spec?: ConfigSpec;
-}
-/** JSON structure to send new terminal window dimensions */
-export interface TerminalResizeMessage {
-    rows: number;
-    cols: number;
 }
 export interface TerminationSignalLabel {
     signal: TerminationSignal;
@@ -9232,25 +8060,6 @@ export interface UpdateStack {
     /** The partial config update to apply. */
     config: _PartialStackConfig;
 }
-/**
- * Update the Swarm at the given id, and return the updated Swarm.
- * Response: [Swarm].
- *
- * Note. If the attached server for the Swarm changes,
- * the Swarm will be deleted / cleaned up on the old server.
- *
- * Note. This method updates only the fields which are set in the [_PartialSwarmConfig],
- * effectively merging diffs into the final document.
- * This is helpful when multiple users are using
- * the same resources concurrently by ensuring no unintentional
- * field changes occur from out of date local state.
- */
-export interface UpdateSwarm {
-    /** The id of the swarm to update. */
-    id: string;
-    /** The partial config update to apply. */
-    config: _PartialSwarmConfig;
-}
 /** Update color for tag. Response: [Tag]. */
 export interface UpdateTagColor {
     /** The name or id of the tag to update. */
@@ -9385,6 +8194,10 @@ export type AuthRequest = {
     type: "GetUser";
     params: GetUser;
 };
+export declare enum ContainerTerminalMode {
+    Exec = "exec",
+    Attach = "attach"
+}
 /** Days of the week */
 export declare enum DayOfWeek {
     Monday = "Monday",
@@ -9573,14 +8386,14 @@ export type ExecuteRequest = {
     type: "BatchRunAction";
     params: BatchRunAction;
 } | {
-    type: "RunSync";
-    params: RunSync;
-} | {
     type: "TestAlerter";
     params: TestAlerter;
 } | {
     type: "SendAlert";
     params: SendAlert;
+} | {
+    type: "RunSync";
+    params: RunSync;
 } | {
     type: "ClearRepoCache";
     params: ClearRepoCache;
@@ -9698,65 +8511,68 @@ export type ReadRequest = {
     type: "ListDockerRegistriesFromConfig";
     params: ListDockerRegistriesFromConfig;
 } | {
-    type: "GetSwarmsSummary";
-    params: GetSwarmsSummary;
+    type: "GetUsername";
+    params: GetUsername;
 } | {
-    type: "GetSwarm";
-    params: GetSwarm;
+    type: "GetPermission";
+    params: GetPermission;
 } | {
-    type: "GetSwarmActionState";
-    params: GetSwarmActionState;
+    type: "FindUser";
+    params: FindUser;
 } | {
-    type: "ListSwarms";
-    params: ListSwarms;
+    type: "ListUsers";
+    params: ListUsers;
 } | {
-    type: "InspectSwarm";
-    params: InspectSwarm;
+    type: "ListApiKeys";
+    params: ListApiKeys;
 } | {
-    type: "ListFullSwarms";
-    params: ListFullSwarms;
+    type: "ListApiKeysForServiceUser";
+    params: ListApiKeysForServiceUser;
 } | {
-    type: "ListSwarmNodes";
-    params: ListSwarmNodes;
+    type: "ListPermissions";
+    params: ListPermissions;
 } | {
-    type: "InspectSwarmNode";
-    params: InspectSwarmNode;
+    type: "ListUserTargetPermissions";
+    params: ListUserTargetPermissions;
 } | {
-    type: "ListSwarmConfigs";
-    params: ListSwarmConfigs;
+    type: "GetUserGroup";
+    params: GetUserGroup;
 } | {
-    type: "InspectSwarmConfig";
-    params: InspectSwarmConfig;
+    type: "ListUserGroups";
+    params: ListUserGroups;
 } | {
-    type: "ListSwarmSecrets";
-    params: ListSwarmSecrets;
+    type: "GetProceduresSummary";
+    params: GetProceduresSummary;
 } | {
-    type: "InspectSwarmSecret";
-    params: InspectSwarmSecret;
+    type: "GetProcedure";
+    params: GetProcedure;
 } | {
-    type: "ListSwarmStacks";
-    params: ListSwarmStacks;
+    type: "GetProcedureActionState";
+    params: GetProcedureActionState;
 } | {
-    type: "InspectSwarmStack";
-    params: InspectSwarmStack;
+    type: "ListProcedures";
+    params: ListProcedures;
 } | {
-    type: "ListSwarmTasks";
-    params: ListSwarmTasks;
+    type: "ListFullProcedures";
+    params: ListFullProcedures;
 } | {
-    type: "InspectSwarmTask";
-    params: InspectSwarmTask;
+    type: "GetActionsSummary";
+    params: GetActionsSummary;
 } | {
-    type: "ListSwarmServices";
-    params: ListSwarmServices;
+    type: "GetAction";
+    params: GetAction;
 } | {
-    type: "InspectSwarmService";
-    params: InspectSwarmService;
+    type: "GetActionActionState";
+    params: GetActionActionState;
 } | {
-    type: "GetSwarmServiceLog";
-    params: GetSwarmServiceLog;
+    type: "ListActions";
+    params: ListActions;
 } | {
-    type: "SearchSwarmServiceLog";
-    params: SearchSwarmServiceLog;
+    type: "ListFullActions";
+    params: ListFullActions;
+} | {
+    type: "ListSchedules";
+    params: ListSchedules;
 } | {
     type: "GetServersSummary";
     params: GetServersSummary;
@@ -9773,6 +8589,9 @@ export type ReadRequest = {
     type: "GetServerActionState";
     params: GetServerActionState;
 } | {
+    type: "GetHistoricalServerStats";
+    params: GetHistoricalServerStats;
+} | {
     type: "ListServers";
     params: ListServers;
 } | {
@@ -9781,6 +8600,9 @@ export type ReadRequest = {
 } | {
     type: "ListTerminals";
     params: ListTerminals;
+} | {
+    type: "ListAllTerminals";
+    params: ListAllTerminals;
 } | {
     type: "GetDockerContainersSummary";
     params: GetDockerContainersSummary;
@@ -9832,9 +8654,6 @@ export type ReadRequest = {
 } | {
     type: "GetSystemStats";
     params: GetSystemStats;
-} | {
-    type: "GetHistoricalServerStats";
-    params: GetHistoricalServerStats;
 } | {
     type: "ListSystemProcesses";
     params: ListSystemProcesses;
@@ -9944,39 +8763,6 @@ export type ReadRequest = {
     type: "ListFullRepos";
     params: ListFullRepos;
 } | {
-    type: "GetProceduresSummary";
-    params: GetProceduresSummary;
-} | {
-    type: "GetProcedure";
-    params: GetProcedure;
-} | {
-    type: "GetProcedureActionState";
-    params: GetProcedureActionState;
-} | {
-    type: "ListProcedures";
-    params: ListProcedures;
-} | {
-    type: "ListFullProcedures";
-    params: ListFullProcedures;
-} | {
-    type: "GetActionsSummary";
-    params: GetActionsSummary;
-} | {
-    type: "GetAction";
-    params: GetAction;
-} | {
-    type: "GetActionActionState";
-    params: GetActionActionState;
-} | {
-    type: "ListActions";
-    params: ListActions;
-} | {
-    type: "ListFullActions";
-    params: ListFullActions;
-} | {
-    type: "ListSchedules";
-    params: ListSchedules;
-} | {
     type: "GetResourceSyncsSummary";
     params: GetResourceSyncsSummary;
 } | {
@@ -10027,36 +8813,6 @@ export type ReadRequest = {
 } | {
     type: "ListTags";
     params: ListTags;
-} | {
-    type: "GetUsername";
-    params: GetUsername;
-} | {
-    type: "GetPermission";
-    params: GetPermission;
-} | {
-    type: "FindUser";
-    params: FindUser;
-} | {
-    type: "ListUsers";
-    params: ListUsers;
-} | {
-    type: "ListApiKeys";
-    params: ListApiKeys;
-} | {
-    type: "ListApiKeysForServiceUser";
-    params: ListApiKeysForServiceUser;
-} | {
-    type: "ListPermissions";
-    params: ListPermissions;
-} | {
-    type: "ListUserTargetPermissions";
-    params: ListUserTargetPermissions;
-} | {
-    type: "GetUserGroup";
-    params: GetUserGroup;
-} | {
-    type: "ListUserGroups";
-    params: ListUserGroups;
 } | {
     type: "GetUpdate";
     params: GetUpdate;
@@ -10156,23 +8912,65 @@ export type UserRequest = {
     params: DeleteApiKey;
 };
 export type WriteRequest = {
+    type: "CreateLocalUser";
+    params: CreateLocalUser;
+} | {
+    type: "UpdateUserUsername";
+    params: UpdateUserUsername;
+} | {
+    type: "UpdateUserPassword";
+    params: UpdateUserPassword;
+} | {
+    type: "DeleteUser";
+    params: DeleteUser;
+} | {
+    type: "CreateServiceUser";
+    params: CreateServiceUser;
+} | {
+    type: "UpdateServiceUserDescription";
+    params: UpdateServiceUserDescription;
+} | {
+    type: "CreateApiKeyForServiceUser";
+    params: CreateApiKeyForServiceUser;
+} | {
+    type: "DeleteApiKeyForServiceUser";
+    params: DeleteApiKeyForServiceUser;
+} | {
+    type: "CreateUserGroup";
+    params: CreateUserGroup;
+} | {
+    type: "RenameUserGroup";
+    params: RenameUserGroup;
+} | {
+    type: "DeleteUserGroup";
+    params: DeleteUserGroup;
+} | {
+    type: "AddUserToUserGroup";
+    params: AddUserToUserGroup;
+} | {
+    type: "RemoveUserFromUserGroup";
+    params: RemoveUserFromUserGroup;
+} | {
+    type: "SetUsersInUserGroup";
+    params: SetUsersInUserGroup;
+} | {
+    type: "SetEveryoneUserGroup";
+    params: SetEveryoneUserGroup;
+} | {
+    type: "UpdateUserAdmin";
+    params: UpdateUserAdmin;
+} | {
+    type: "UpdateUserBasePermissions";
+    params: UpdateUserBasePermissions;
+} | {
+    type: "UpdatePermissionOnResourceType";
+    params: UpdatePermissionOnResourceType;
+} | {
+    type: "UpdatePermissionOnTarget";
+    params: UpdatePermissionOnTarget;
+} | {
     type: "UpdateResourceMeta";
     params: UpdateResourceMeta;
-} | {
-    type: "CreateSwarm";
-    params: CreateSwarm;
-} | {
-    type: "CopySwarm";
-    params: CopySwarm;
-} | {
-    type: "DeleteSwarm";
-    params: DeleteSwarm;
-} | {
-    type: "UpdateSwarm";
-    params: UpdateSwarm;
-} | {
-    type: "RenameSwarm";
-    params: RenameSwarm;
 } | {
     type: "CreateServer";
     params: CreateServer;
@@ -10192,12 +8990,6 @@ export type WriteRequest = {
     type: "CreateNetwork";
     params: CreateNetwork;
 } | {
-    type: "UpdateServerPublicKey";
-    params: UpdateServerPublicKey;
-} | {
-    type: "RotateServerKeys";
-    params: RotateServerKeys;
-} | {
     type: "CreateTerminal";
     params: CreateTerminal;
 } | {
@@ -10209,6 +9001,12 @@ export type WriteRequest = {
 } | {
     type: "BatchDeleteAllTerminals";
     params: BatchDeleteAllTerminals;
+} | {
+    type: "UpdateServerPublicKey";
+    params: UpdateServerPublicKey;
+} | {
+    type: "RotateServerKeys";
+    params: RotateServerKeys;
 } | {
     type: "CreateStack";
     params: CreateStack;
@@ -10270,6 +9068,21 @@ export type WriteRequest = {
     type: "RefreshBuildCache";
     params: RefreshBuildCache;
 } | {
+    type: "CreateBuilder";
+    params: CreateBuilder;
+} | {
+    type: "CopyBuilder";
+    params: CopyBuilder;
+} | {
+    type: "DeleteBuilder";
+    params: DeleteBuilder;
+} | {
+    type: "UpdateBuilder";
+    params: UpdateBuilder;
+} | {
+    type: "RenameBuilder";
+    params: RenameBuilder;
+} | {
     type: "CreateRepo";
     params: CreateRepo;
 } | {
@@ -10287,6 +9100,21 @@ export type WriteRequest = {
 } | {
     type: "RefreshRepoCache";
     params: RefreshRepoCache;
+} | {
+    type: "CreateAlerter";
+    params: CreateAlerter;
+} | {
+    type: "CopyAlerter";
+    params: CopyAlerter;
+} | {
+    type: "DeleteAlerter";
+    params: DeleteAlerter;
+} | {
+    type: "UpdateAlerter";
+    params: UpdateAlerter;
+} | {
+    type: "RenameAlerter";
+    params: RenameAlerter;
 } | {
     type: "CreateProcedure";
     params: CreateProcedure;
@@ -10342,102 +9170,6 @@ export type WriteRequest = {
     type: "RefreshResourceSyncPending";
     params: RefreshResourceSyncPending;
 } | {
-    type: "CreateBuilder";
-    params: CreateBuilder;
-} | {
-    type: "CopyBuilder";
-    params: CopyBuilder;
-} | {
-    type: "DeleteBuilder";
-    params: DeleteBuilder;
-} | {
-    type: "UpdateBuilder";
-    params: UpdateBuilder;
-} | {
-    type: "RenameBuilder";
-    params: RenameBuilder;
-} | {
-    type: "CreateAlerter";
-    params: CreateAlerter;
-} | {
-    type: "CopyAlerter";
-    params: CopyAlerter;
-} | {
-    type: "DeleteAlerter";
-    params: DeleteAlerter;
-} | {
-    type: "UpdateAlerter";
-    params: UpdateAlerter;
-} | {
-    type: "RenameAlerter";
-    params: RenameAlerter;
-} | {
-    type: "CreateOnboardingKey";
-    params: CreateOnboardingKey;
-} | {
-    type: "UpdateOnboardingKey";
-    params: UpdateOnboardingKey;
-} | {
-    type: "DeleteOnboardingKey";
-    params: DeleteOnboardingKey;
-} | {
-    type: "CreateLocalUser";
-    params: CreateLocalUser;
-} | {
-    type: "UpdateUserUsername";
-    params: UpdateUserUsername;
-} | {
-    type: "UpdateUserPassword";
-    params: UpdateUserPassword;
-} | {
-    type: "DeleteUser";
-    params: DeleteUser;
-} | {
-    type: "CreateServiceUser";
-    params: CreateServiceUser;
-} | {
-    type: "UpdateServiceUserDescription";
-    params: UpdateServiceUserDescription;
-} | {
-    type: "CreateApiKeyForServiceUser";
-    params: CreateApiKeyForServiceUser;
-} | {
-    type: "DeleteApiKeyForServiceUser";
-    params: DeleteApiKeyForServiceUser;
-} | {
-    type: "CreateUserGroup";
-    params: CreateUserGroup;
-} | {
-    type: "RenameUserGroup";
-    params: RenameUserGroup;
-} | {
-    type: "DeleteUserGroup";
-    params: DeleteUserGroup;
-} | {
-    type: "AddUserToUserGroup";
-    params: AddUserToUserGroup;
-} | {
-    type: "RemoveUserFromUserGroup";
-    params: RemoveUserFromUserGroup;
-} | {
-    type: "SetUsersInUserGroup";
-    params: SetUsersInUserGroup;
-} | {
-    type: "SetEveryoneUserGroup";
-    params: SetEveryoneUserGroup;
-} | {
-    type: "UpdateUserAdmin";
-    params: UpdateUserAdmin;
-} | {
-    type: "UpdateUserBasePermissions";
-    params: UpdateUserBasePermissions;
-} | {
-    type: "UpdatePermissionOnResourceType";
-    params: UpdatePermissionOnResourceType;
-} | {
-    type: "UpdatePermissionOnTarget";
-    params: UpdatePermissionOnTarget;
-} | {
     type: "CreateTag";
     params: CreateTag;
 } | {
@@ -10482,6 +9214,15 @@ export type WriteRequest = {
 } | {
     type: "DeleteDockerRegistryAccount";
     params: DeleteDockerRegistryAccount;
+} | {
+    type: "CreateOnboardingKey";
+    params: CreateOnboardingKey;
+} | {
+    type: "UpdateOnboardingKey";
+    params: UpdateOnboardingKey;
+} | {
+    type: "DeleteOnboardingKey";
+    params: DeleteOnboardingKey;
 } | {
     type: "CloseAlert";
     params: CloseAlert;

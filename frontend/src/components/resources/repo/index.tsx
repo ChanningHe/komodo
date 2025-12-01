@@ -1,7 +1,7 @@
 import { useInvalidate, useRead, useWrite } from "@lib/hooks";
 import { RequiredResourceComponents } from "@types";
 import { Card } from "@ui/card";
-import { GitBranch, Loader2, RefreshCcw } from "lucide-react";
+import { GitBranch, Loader2, RefreshCcw, Server } from "lucide-react";
 import { RepoConfig } from "./config";
 import { BuildRepo, CloneRepo, PullRepo } from "./actions";
 import {
@@ -16,7 +16,6 @@ import {
   stroke_color_class_by_intention,
 } from "@lib/color";
 import { cn } from "@lib/utils";
-import { useServer } from "../server";
 import { Types } from "komodo_client";
 import { DashboardPieChart } from "@components/util";
 import { RepoLink, StatusBadge } from "@components/util";
@@ -107,17 +106,21 @@ export const RepoComponents: RequiredResourceComponents = {
   Info: {
     Target: ({ id }) => {
       const info = useRepo(id)?.info;
-      const server = useServer(info?.server_id);
+      const serverCount = info?.server_ids?.length || 0;
       const builder = useBuilder(info?.builder_id);
       return (
         <div className="flex items-center gap-x-4 gap-y-2 flex-wrap">
-          {server?.id &&
+          {serverCount > 0 &&
             (builder?.id ? (
-              <div className="pr-4 text-sm border-r">
-                <ResourceLink type="Server" id={server.id} />
+              <div className="pr-4 text-sm border-r flex items-center gap-1">
+                <Server className={cn("w-4 h-4", stroke_color_class_by_intention("Good"))} />
+                <span>{serverCount} {serverCount === 1 ? 'Server' : 'Servers'}</span>
               </div>
             ) : (
-              <ResourceLink type="Server" id={server.id} />
+              <div className="flex items-center gap-1">
+                <Server className={cn("w-4 h-4", stroke_color_class_by_intention("Good"))} />
+                <span>{serverCount} {serverCount === 1 ? 'Server' : 'Servers'}</span>
+              </div>
             ))}
           {builder?.id && <ResourceLink type="Builder" id={builder.id} />}
         </div>
