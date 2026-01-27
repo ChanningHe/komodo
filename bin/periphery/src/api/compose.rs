@@ -345,10 +345,8 @@ impl Resolve<crate::api::Args> for ComposePull {
 
     let file_args = stack.compose_file_paths().join(" -f ");
 
-    let env_file_args = env_file_args(
-      env_file_path,
-      &stack.config.additional_env_files,
-    )?;
+    let env_file_args =
+      env_file_args(env_file_path, &stack.config.additional_env_files, true)?;
 
     let project_name = stack.project_name(false);
 
@@ -478,16 +476,18 @@ impl Resolve<crate::api::Args> for ComposeUp {
     let last_project_name = stack.project_name(false);
     let project_name = stack.project_name(true);
 
-    let env_file_args = env_file_args(
-      env_file_path,
-      &stack.config.additional_env_files,
-    )?;
+    // tracked_only=true: exclude untracked env files from config output (avoids secret exposure or errors from undecrypted files)
+    let env_file_args_tracked =
+      env_file_args(env_file_path, &stack.config.additional_env_files, true)?;
+    // tracked_only=false: include all env files for runtime
+    let env_file_args_all =
+      env_file_args(env_file_path, &stack.config.additional_env_files, false)?;
 
     // Uses 'docker compose config' command to extract services (including image)
     // after performing interpolation
     {
       let command = format!(
-        "{docker_compose} -p {project_name} -f {file_args}{env_file_args} config",
+        "{docker_compose} -p {project_name} -f {file_args}{env_file_args_tracked} config",
       );
       let span = info_span!("GetComposeConfig", command);
       let Some(config_log) = run_komodo_command_with_sanitization(
@@ -556,7 +556,7 @@ impl Resolve<crate::api::Args> for ComposeUp {
       let build_extra_args =
         format_extra_args(&stack.config.build_extra_args);
       let command = format!(
-        "{docker_compose} -p {project_name} -f {file_args}{env_file_args} build{build_extra_args}{service_args}",
+        "{docker_compose} -p {project_name} -f {file_args}{env_file_args_tracked} build{build_extra_args}{service_args}",
       );
       let span = info_span!("ExecuteComposeBuild");
       let Some(log) = run_komodo_command_with_sanitization(
@@ -582,7 +582,7 @@ impl Resolve<crate::api::Args> for ComposeUp {
       // Pull images before destroying to minimize downtime.
       // If this fails, do not continue.
       let command = format!(
-        "{docker_compose} -p {project_name} -f {file_args}{env_file_args} pull{service_args}",
+        "{docker_compose} -p {project_name} -f {file_args}{env_file_args_tracked} pull{service_args}",
       );
       let span = info_span!("RunComposePull");
       let log = run_komodo_standard_command(
@@ -612,7 +612,7 @@ impl Resolve<crate::api::Args> for ComposeUp {
     // Run compose up
     let extra_args = format_extra_args(&stack.config.extra_args);
     let mut command = format!(
-      "{docker_compose} -p {project_name} -f {file_args}{env_file_args} up -d{extra_args}{service_args}",
+      "{docker_compose} -p {project_name} -f {file_args}{env_file_args_all} up -d{extra_args}{service_args}",
     );
 
     // Apply compose cmd wrapper if configured
@@ -777,10 +777,10 @@ impl Resolve<crate::api::Args> for ComposeRun {
       stack.config.file_paths.join(" -f ")
     };
 
-    let env_file_args = env_file_args(
-      env_file_path,
-      &stack.config.additional_env_files,
-    )?;
+    let env_file_args_tracked =
+      env_file_args(env_file_path, &stack.config.additional_env_files, true)?;
+    let env_file_args_all =
+      env_file_args(env_file_path, &stack.config.additional_env_files, false)?;
 
     let project_name = stack.project_name(true);
 
@@ -789,7 +789,7 @@ impl Resolve<crate::api::Args> for ComposeRun {
         "Compose Pull",
         run_directory.as_ref(),
         format!(
-          "{docker_compose} -p {project_name} -f {file_args}{env_file_args} pull {service}",
+          "{docker_compose} -p {project_name} -f {file_args}{env_file_args_tracked} pull {service}",
         ),
       )
       .await;
@@ -840,7 +840,7 @@ impl Resolve<crate::api::Args> for ComposeRun {
       .unwrap_or_default();
 
     let command = format!(
-      "{docker_compose} -p {project_name} -f {file_args}{env_file_args} run{run_flags} {service}{command_args}",
+      "{docker_compose} -p {project_name} -f {file_args}{env_file_args_all} run{run_flags} {service}{command_args}",
     );
 
     let span = info_span!("RunComposeRun", command);
@@ -861,16 +861,19 @@ impl Resolve<crate::api::Args> for ComposeRun {
   }
 }
 
+/// Build --env-file arguments for docker compose commands.
+/// When `tracked_only` is true, excludes files with track=false to prevent secret exposure in config output or env_file not decrypted.
 fn env_file_args(
   env_file_path: Option<&str>,
   additional_env_files: &[AdditionalEnvFile],
+  tracked_only: bool,
 ) -> anyhow::Result<String> {
   let mut res = String::new();
 
-  // Add additional env files (except komodo's own, which comes last)
   for file in additional_env_files
     .iter()
     .filter(|f| env_file_path != Some(f.path.as_str()))
+    .filter(|f| !tracked_only || f.track)
   {
     let path = &file.path;
     write!(res, " --env-file {path}").with_context(|| {
